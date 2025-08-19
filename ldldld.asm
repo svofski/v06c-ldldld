@@ -1,6 +1,5 @@
-        ; 🐟  (try me)
-        ; 8080 assembler code
-        .project test.com
+        ; LD LD, (LD)
+        .project ldldld.com
         .tape v06c-rom
 
 
@@ -16,8 +15,12 @@
         ; go!
         
 traptab_org     .equ $7000
+host_org        .equ traptab_org + $100
+bpt_stack       .equ traptab_org 
+guest_stack     .equ traptab_org - 64
 
-OPC_RST5        .equ $ef                ; bpt at branch end
+OPC_RST4        .equ $e7                ; bpt after single-ended branch
+OPC_RST5        .equ $ef                ; bpt after forked branch
 OPC_RST6        .equ $f7                ; bpt at ret/rst/pchl
 
 OPC_RNZ         .equ $c0 	        ; ret nz
@@ -32,45 +35,146 @@ OPC_RM          .equ $f8 	        ; ret m
 
 OPC_PCHL        .equ $e9
 
-        ; bpt at either branch end, (sp) = orig insn addr
-rst5_hand:
-        shld bpt5_hl                    ; save guest hl
-        pop h
-        shld bpt5_ret                   ; return addr (guest pc)
-        push psw                        ; save guest psw
-        lhld bptsave_t_ptr              ; restore bpt t insn
-        lda bptsave_t
-        mov m, a                        
-        lhld bptsave_f_ptr              ; restore bpt f insn
-        lda bptsave_f
-        mov m, a
+OPC_JMP         .equ $c3
+
+        .org $100
+        jmp host_org
+        ; test program
+test_guest:        
+        mvi a, $55
+        sta $1000
+        call test_1
+        ora a
+        cnz test_2
+        call test_3
+        mvi c, 2
+        mvi e, 'A'
+        call 5
+        mvi c, 9
+        lxi d, testmsg
+        call 5
+        rst 0
+testmsg: .db 'Bob, give me back my garmonbozia', 13, 10, '$'
+test_1:
+        ret
+test_2:
+        mvi c, 2
+        dcr c
+        rz
+        jmp $-2
+test_3:
+        mvi c, 2
+        dcr c
+        jnz $-1
+        ret
         
+        .org host_org
+        ; restrict TPA
+        ; load guest program to TPA
+        di
+        lxi sp, bpt_stack
+load_guest:
+        ;...
+install_handlers:
+        mvi a, OPC_JMP
+        sta 4*8
+        sta 5*8
+        sta 6*8
+        sta 7*8
+        lxi h, rst4_hand
+        shld 4*8+1
+        lxi h, rst5_hand
+        shld 5*8+1
+        lxi h, rst6_hand
+        shld 6*8+1
+        lxi h, rst7_hand
+        shld 7*8+1
+run_guest:
+        lxi h, test_guest ;$100
+        shld guest_pc
+        lxi h, guest_stack
+        shld guest_sp
+        jmp rst5_scan
+        
+rst7_hand:
+        ret
+
+rst4_hand:
+        ; bpt after single-ended branch
+        di
+        shld guest_hl                   ; save guest hl
+        pop h
+        push psw                        ; save guest psw
+        dcx h
+        shld guest_pc                   ; return addr (guest pc - 1)
+        pop h
+        shld guest_psw
+        lhld bptsave_t_ptr              ; restore bpt insn
+        lda bptsave_t
+        mov m, a 
+
         lxi h, 0                        ; save guest sp
         dad sp
-        shld bpt5_sp
+        shld guest_sp
+        jmp rst5_scan        
+        
+        ; bpt at either branch end, (sp) = orig insn addr
+rst5_hand:
+        di
+        shld guest_hl                   ; save guest hl
+        pop h
+        push psw                        ; save guest psw
+        dcx h
+        shld guest_pc                   ; return addr (guest pc - 1)
+        pop h
+        shld guest_psw
+        lhld bptsave_t_ptr              ; restore bpt insn
+        lda bptsave_t
+        mov m, a 
+        lhld bptsave_f_ptr
+        lda bptsave_f
+        mov m, a
+
+        lxi h, 0                        ; save guest sp
+        dad sp
+        shld guest_sp
+rst5_scan:        
         lxi sp, bpt_stack               ; set host sp
         push b
         push d
-        ;
-        lhld bpt5_ret
+rst5_scan_ext:
+        lhld guest_pc
         call scan_until_br
-        ;
+        ; return control to guest
         pop d
         pop b
-bpt5_hl  .equ $+1        
+        ;lhld guest_psw
+guest_psw .equ $+1
         lxi h, 0
-bpt5_sp  .equ $+1        
+        push h
+        pop psw
+        ;lhld guest_sp
+        ;sphl
+guest_sp .equ $+1
         lxi sp, 0
-        pop psw        
-bpt5_ret .equ $+1        
+        ;lhld guest_pc
+        ;shld rst5_ret
+        ;lhld guest_hl
+guest_hl .equ $+1
+        lxi h, 0
+        ei
+;rst5_ret .equ $+1        
+guest_pc .equ $+1
         jmp 0
         
         ; bpt at ret/ret cond/rst/pchl
 rst6_hand:
+        di
         shld guest_hl                   ; save guest hl
         pop h
-        shld guest_pc                   ; return addr (guest pc)
         push psw                        ; save guest psw
+        dcx h
+        shld guest_pc                   ; return addr (guest pc - 1)
         pop h
         shld guest_psw
         lhld bptsave_t_ptr              ; restore bpt insn
@@ -85,22 +189,12 @@ rst6_hand:
         push d
         ;
         lhld guest_pc
-        call singlestep_br1
-        ;
-        pop d
-        pop b
-        lhld guest_sp
-        sphl
-        lhld guest_psw
-        push h
-        pop psw
-        lhld guest_hl
-        lhld guest_pc
-        pchl
-        
+        call emu_br1
+        jmp rst5_scan_ext
+
         ; singlestep a br1 insn in
         ; mem[hl] = opc
-singlestep_br1:
+emu_br1:
         mov a, m
         cpi OPC_RET
         jz ss_ret
@@ -119,7 +213,7 @@ singlestep_br1:
         cpi OPC_RM
         jz ss_rm
         cpi OPC_RP
-        rz ss_rp
+        jz ss_rp
         cpi OPC_PCHL
         jz ss_pchl
         jmp $
@@ -185,6 +279,12 @@ ss_rm:
         pop psw
         jm ss_ret
         jmp ss_nop
+ss_rp:        
+        lhld guest_psw
+        push h
+        pop psw
+        jp ss_ret
+        jmp ss_nop
 
 ss_pchl:
         lhld guest_hl
@@ -196,14 +296,28 @@ bptsave_t:      .db 0                   ; bpt branch if condition true, insn add
 bptsave_f_ptr:  .dw 0                   ; bpt false insn addr
 bptsave_f:      .db 0                   ; bpt branch if condition false, insn addr?
 
-guest_pc:       .dw 0
-guest_sp:       .dw 0
-guest_hl:       .dw 0
-guest_psw:      .dw 0
+;guest_pc:       .dw 0
+;guest_sp:       .dw 0
+;guest_hl:       .dw 0
+;guest_psw:      .dw 0
 
         ; hl = guest pc
+        ; first insn = br3, insert 2 bpts 
+        ; if br3 follows, insert bpt at br3
 scan_until_br:
         mvi d, traptab >> 8
+        ; first insn
+        mov e, m    
+        ldax d
+        ora a
+        jm scubr_fork
+        jz scubr_emulate
+        add l
+        mov l, a
+        mvi a, 0
+        adc h
+        mov h, a
+        ; next insn
 scubr_1:
         mov e, m                        ; de = &traptab[mem[pc]]
         ldax d                          ; a = traptab[mem[pc]]
@@ -217,7 +331,16 @@ scubr_1:
         mov h, a                        ; next pc
         jmp scubr_1
 
+        ; regular branch found at the end of a run
 scubr_branch:
+        mov a, m                        ; opcode
+        sta bptsave_t
+        shld bptsave_t_ptr
+        mvi m, OPC_RST4
+        ret
+
+        ; branch/fork at the start of a run, singlestep
+scubr_fork:
         ani 3                           ; a <- insn size
         cpi 1                           ; ret/ret cond/rst --- pchl must be emulated
         jz scubr_1bbr
@@ -255,7 +378,6 @@ scubr_emulate:
         jmp $                           ; not yet implemented
         
         
-bpt_stack .equ traptab_org        
         ; opcode/break table
         ; 0 = through
         ; 1 = break -> single step
@@ -282,7 +404,7 @@ traptab:
         .db 2 ; $0e 	ld c,000h	mvi	c,0
         .db 1 ; $0f 	rrca		rrc
         .db 0 ; $10 	djnz $+2	#######################
-        .db 0 ; $11 	ld de,00000	lxi	d,X0000
+        .db 3 ; $11 	ld de,00000	lxi	d,X0000
         .db 1 ; $12 	ld (de),a	stax	d
         .db 1 ; $13 	inc de		inx	d
         .db 1 ; $14 	inc d		inr	d
