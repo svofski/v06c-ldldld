@@ -449,8 +449,6 @@ scubr_1bbr:
         ; hl = guest pc
 emu_ld:
         mov a, m
-        cpi $ed                         ; ED xx..
-        jz emu_ed
         cpi $10
         jz emu_djnz
         cpi $20
@@ -463,6 +461,52 @@ emu_ld:
         jz emu_jr_z
         cpi $38
         jz emu_jr_c
+        cpi $ed                         ; ED xx..
+        jz emu_ed
+        cpi $cb
+        jz emu_cb
+        jmp $
+       
+        ; CB prefix: bit, res, set...
+emu_cb:
+        inx h
+        ; rlc    0000 0_rrr
+        ; rrc    0000 1_rrr
+        ; rl     0001 0_rrr
+        ; rr     0001 1_rrr
+        ; sla    0010 0_rrr
+        ; sra    0010 1_rrr
+        ; sll    0011 0_rrr
+        ; srl    0011 1_rrr
+        ; 
+        ; bit:   01nn n_rrr
+        ; res:   10nn n_rrr
+        ; set:   11nn n_rrr
+        mvi a, 0b11000000
+        ana m
+        cpi 0b01000000
+        jz emu_bit
+        cpi 0b10000000
+        jz emu_res
+        cpi 0b11000000
+        jz emu_set
+        mvi a, 0b11111000
+        cpi $00
+        jz emu_rlc_r
+        cpi $08
+        jz emu_rrc_r
+        cpi $10
+        jz emu_rl_r
+        cpi $18
+        jz emu_rr_r
+        cpi $20
+        jz emu_sla_r
+        cpi $28
+        jz emu_sra_r
+        cpi $30
+        jz emu_sll_r
+        cpi $38
+        jz emu_srl_r
         jmp $
        
         ; ED prefix 
@@ -586,6 +630,161 @@ emu_jr_c:
         inx h
         shld guest_pc
         ret
+        
+        ; align 256
+        .org 0100h + $ & $ff00
+bit_value:
+        .db 0b00000001
+        .db 0b00000010
+        .db 0b00000100
+        .db 0b00001000
+        .db 0b00010000
+        .db 0b00100000
+        .db 0b01000000
+        .db 0b10000000
+
+        ; hl -> opcode
+        ; bit number 00nnn000 -> a
+getbit_a: 
+        mvi a, 0b00111000
+        ana m
+        rar \ rar \ rar
+        mov l, a
+        mvi h, bit_value >> 8
+        mov a, m
+        ret
+        
+        ; register 00000rrr: 0=b, 1=c, 2=d, 3=e, 4=h, 5=l, 6=m, 7=a
+getreg_a:
+        mvi a, 0b00000111
+        ana m
+        ral \ ral       ; ofs = reg * 4 
+        mov e, a
+        mvi d, 0
+        lxi h, getreg_switch
+        dad d
+        pchl
+
+getreg_switch:
+_grsw_0_b:      lda guest_bc+1 \ ret
+_grsw_1_c:      lda guest_bc   \ ret
+_grsw_2_d:      lda guest_de+1 \ ret
+_grsw_3_e:      lda guest_de   \ ret
+_grsw_4_h:      lda guest_hl+1 \ ret
+_grsw_5_l:      lda guest_hl   \ ret
+_grsw_6_m:      jmp _grsw_7_m_real \ nop
+_grsw_7_a:      lda guest_psw+1 \ ret
+
+_grsw_7_m_real:
+        lhld guest_hl
+        mov a, m
+        ret
+        
+setreg_a:
+        mvi a, 0b00000111
+        ana m
+        ral \ ral       ; ofs = reg * 4
+        mov e, a
+        mvi d, 0
+        lxi h, setreg_switch
+        dad d
+        pchl
+
+setreg_switch:
+_srsw_0_b:      sta guest_bc+1 \ ret       
+_srsw_1_c:      sta guest_bc   \ ret
+_srsw_2_d:      sta guest_de+1 \ ret
+_srsw_3_e:      sta guest_de   \ ret
+_srsw_4_h:      sta guest_hl+1 \ ret
+_srsw_5_l:      sta guest_hl   \ ret
+_srsw_6_m:      jmp _srsw_7_m_real \ nop
+_srsw_7_a:      sta guest_psw+1 \ ret
+
+_srsw_7_m_real:
+        lhld guest_hl
+        mov m, a
+        ret
+
+        ; Z is set if bit = 0
+        ; H is set ?
+        ; N is reset
+emu_bit:
+        push h
+        push h
+        call getreg_a
+        pop h
+        mov b, a
+        call getbit_a
+        ana b
+        jz _ebt_setz
+_ebt_clrz:
+        lda guest_psw
+        ani ~0x40       ; clear Z
+        ori 0x10        ; set H
+        sta guest_psw
+        pop h
+        inx h
+        shld guest_pc
+        ret
+_ebt_setz:
+        lda guest_psw
+        ori 0x40|0x10   ; set Z+H
+        sta guest_psw
+        pop h
+        inx h
+        shld guest_pc
+        ret
+        
+        ; 10bbbrrr 
+emu_res:
+        push h
+        push h
+        push h
+        call getreg_a
+        pop h
+        mov b, a
+        call getbit_a
+        cma
+        ana b
+        pop h
+        call setreg_a
+        pop h
+        inx h
+        shld guest_pc
+        ret
+        
+        ; 11bbbrrr 
+emu_set:
+        push h
+        push h
+        push h
+        call getreg_a
+        pop h
+        mov b, a
+        call getbit_a
+        ora b
+        pop h
+        call setreg_a
+        pop h
+        inx h
+        shld guest_pc
+        ret
+emu_rlc_r:
+        jmp $
+emu_rrc_r:
+        jmp $
+emu_rl_r:
+        jmp $
+emu_rr_r:
+        jmp $
+emu_sla_r:
+        jmp $
+emu_sra_r:
+        jmp $
+emu_sll_r:
+        jmp $
+emu_srl_r:
+        jmp $
         
         
         ; opcode/break table
