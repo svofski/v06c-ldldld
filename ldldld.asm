@@ -19,6 +19,10 @@ host_org        .equ traptab_org + $100
 bpt_stack       .equ traptab_org 
 guest_stack     .equ traptab_org - 64
 
+guest_bc        .equ guest_stack - 2
+guest_de        .equ guest_stack - 4
+
+OPC_RST3        .equ $df                ; emulated insn trap
 OPC_RST4        .equ $e7                ; bpt after single-ended branch
 OPC_RST5        .equ $ef                ; bpt after forked branch
 OPC_RST6        .equ $f7                ; bpt at ret/rst/pchl
@@ -48,6 +52,9 @@ test_guest:
         cnz test_2
         call test_3
         mvi c, 2
+        ;
+        db $ed, $7b, $06, $00   ; ld sp, (6)
+        ;
         mvi e, 'A'
         call 5
         mvi c, 9
@@ -77,10 +84,13 @@ load_guest:
         ;...
 install_handlers:
         mvi a, OPC_JMP
+        sta 3*8
         sta 4*8
         sta 5*8
         sta 6*8
         sta 7*8
+        lxi h, rst3_hand
+        shld 3*8+1
         lxi h, rst4_hand
         shld 4*8+1
         lxi h, rst5_hand
@@ -98,6 +108,31 @@ run_guest:
         
 rst7_hand:
         ret
+        
+        ; emulated instructions
+rst3_hand:
+        di
+        shld guest_hl                   ; save guest hl
+        pop h
+        push psw                        ; save guest psw
+        dcx h
+        shld guest_pc                   ; return addr (guest pc - 1)
+        pop h
+        shld guest_psw
+        lhld bptsave_t_ptr              ; restore bpt insn
+        lda bptsave_t
+        mov m, a                        
+
+        lxi h, 0                        ; save guest sp
+        dad sp
+        shld guest_sp
+        lxi sp, bpt_stack               ; set host sp
+        push b
+        push d
+        ;
+        lhld guest_pc
+        call emu_ld                     ; emulate ld ld, (ld)
+        jmp rst5_scan_ext               ; and scan from the new pc onward
 
 rst4_hand:
         ; bpt after single-ended branch
@@ -122,16 +157,16 @@ rst4_hand:
 rst5_hand:
         di
         shld guest_hl                   ; save guest hl
-        pop h
-        push psw                        ; save guest psw
-        dcx h
+        pop h                           ; h <- guest pc
+        push psw                        ; guest psw on stack
+        dcx h                           ; h <- guest pc - 1
         shld guest_pc                   ; return addr (guest pc - 1)
-        pop h
+        pop h                           ; save guest psw
         shld guest_psw
-        lhld bptsave_t_ptr              ; restore bpt insn
+        lhld bptsave_t_ptr              ; restore bpt t insn
         lda bptsave_t
         mov m, a 
-        lhld bptsave_f_ptr
+        lhld bptsave_f_ptr              ; restore bpt f insn
         lda bptsave_f
         mov m, a
 
@@ -140,30 +175,23 @@ rst5_hand:
         shld guest_sp
 rst5_scan:        
         lxi sp, bpt_stack               ; set host sp
-        push b
-        push d
+        push b                          ; save guest bc
+        push d                          ; save guest de
 rst5_scan_ext:
         lhld guest_pc
         call scan_until_br
         ; return control to guest
         pop d
         pop b
-        ;lhld guest_psw
 guest_psw .equ $+1
         lxi h, 0
         push h
         pop psw
-        ;lhld guest_sp
-        ;sphl
 guest_sp .equ $+1
         lxi sp, 0
-        ;lhld guest_pc
-        ;shld rst5_ret
-        ;lhld guest_hl
 guest_hl .equ $+1
         lxi h, 0
         ei
-;rst5_ret .equ $+1        
 guest_pc .equ $+1
         jmp 0
         
@@ -189,8 +217,8 @@ rst6_hand:
         push d
         ;
         lhld guest_pc
-        call emu_br1
-        jmp rst5_scan_ext
+        call emu_br1                    ; emulate ret
+        jmp rst5_scan_ext               ; and scan from the new pc onward
 
         ; singlestep a br1 insn in
         ; mem[hl] = opc
@@ -302,12 +330,12 @@ bptsave_f:      .db 0                   ; bpt branch if condition false, insn ad
 ;guest_psw:      .dw 0
 
         ; hl = guest pc
-        ; first insn = br3, insert 2 bpts 
+        ; if first insn = br3, insert 2 bpts --- todo: emulate forking jump?
         ; if br3 follows, insert bpt at br3
 scan_until_br:
         mvi d, traptab >> 8
         ; first insn
-        mov e, m    
+        mov e, m
         ldax d
         ora a
         jm scubr_fork
@@ -339,13 +367,41 @@ scubr_branch:
         mvi m, OPC_RST4
         ret
 
+scubr_emulate:
+        mov a, m                        ; opcode
+        sta bptsave_t
+        shld bptsave_t_ptr
+        mvi m, OPC_RST3
+        ret
+        
+        
+;         ; unconditional jump/call at the start of a run, set break at the far end
+; scubr_uncond:        
+;         inx h                           ; de <- branch dst
+;         mov e, m
+;         inx h
+;         mov d, m
+;         inx h
+;         xchg                            ; hl <- branch dst, de <- pc + 3
+;         mov a, m                        ; bptsave_t = mem[br dst]
+;         sta bptsave_t
+;         mvi m, OPC_RST4                 ; mem[br dst] = rst5
+;         shld bptsave_t_ptr              ; bptsave_t_ptr = br dst
+;         ret
+        
         ; branch/fork at the start of a run, singlestep
 scubr_fork:
-        ani 3                           ; a <- insn size
-        cpi 1                           ; ret/ret cond/rst --- pchl must be emulated
+        cpi $81                         ; 1-byte insn: ret/ret cond/rst --- pchl must be emulated
         jz scubr_1bbr
         ; insn length 3, save branch dst and insert bpt
-scubr_3bbr:        
+scubr_3bbr:
+        ; smart? then it's slower!
+        ;mov a, m
+        ;cpi $c3                         ; jmp -- no fork
+        ;jz scubr_uncond
+        ;cpi $cd                         ; call -- no fork
+        ;jz scubr_uncond
+        
         inx h                           ; de <- branch dst
         mov e, m
         inx h
@@ -374,8 +430,58 @@ scubr_1bbr:
         mvi m, OPC_RST6
         ret
         
-scubr_emulate:
-        jmp $                           ; not yet implemented
+
+        ; hl = guest pc
+emu_ld:
+        mov a, m
+        cpi $ed                         ; ED xx..
+        jz emu_ed
+        jmp $
+       
+        ; ED prefix 
+emu_ed:
+        inx h
+        ; 48    01_00_1011 ld bc, (a16)
+        ; 58    01_01_1011 ld de, (a16)
+        ; 68    01_10_1011 ld hl, (a16)
+        ; 78    01_11_1011 ld sp, (a16)
+        mvi a, 0b11001111
+        ana m
+        cpi 0b01001011
+        jz em_ed_ldrp_a16
+        jmp $
+        
+        ; ld rp, (a16)
+em_ed_ldrp_a16:
+        mov b, m        ; b = 48/58/68/70
+        inx h
+        mov e, m
+        inx h
+        mov d, m
+        inx h
+        shld guest_pc   ; update guest pc
+        xchg
+        mov e, m
+        inx h
+        mov d, m
+        xchg            ; hl = mem[a16]
+        mov a, b
+        cpi $48
+        jnz $+7
+        shld guest_bc   ; ed 48 xx xx
+        ret
+        cpi $58
+        jnz $+7
+        shld guest_de   ; ed 58 xx xx
+        ret
+        cpi $68
+        jnz $+7
+        shld guest_hl   ; ed 68 xx xx
+        ret
+        shld guest_sp   ; ed 78 xx xx
+        ret
+
+        
         
         
         ; opcode/break table
