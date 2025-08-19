@@ -19,8 +19,8 @@ host_org        .equ traptab_org + $100
 bpt_stack       .equ traptab_org 
 guest_stack     .equ traptab_org - 64
 
-guest_bc        .equ guest_stack - 2
-guest_de        .equ guest_stack - 4
+guest_bc        .equ bpt_stack - 2
+guest_de        .equ bpt_stack - 4
 
 OPC_RST3        .equ $df                ; emulated insn trap
 OPC_RST4        .equ $e7                ; bpt after single-ended branch
@@ -51,17 +51,32 @@ test_guest:
         ora a
         cnz test_2
         call test_3
-        mvi c, 2
         ;
         db $ed, $7b, $06, $00   ; ld sp, (6)
         ;
-        mvi e, 'A'
+        
+        ;
+        ;     jr t1
+        ; t2: 
+        ;     jr t3
+        ; t1: 
+        ;     jr t2
+        ; t3:
+        .db $18, $02, $18, $02, $18, $FC
+        ;     ld bc, $240
+        ; lup:    
+        ;     inc c
+        ;     djnz lup
+        .db $01, $40, $02, $0C, $10, $FD
+        
+        mov e, c 
+        mvi c, 2
         call 5
         mvi c, 9
         lxi d, testmsg
         call 5
         rst 0
-testmsg: .db 'Bob, give me back my garmonbozia', 13, 10, '$'
+testmsg: .db 'ob, I want all my garmonbozia', 13, 10, '$'
 test_1:
         ret
 test_2:
@@ -436,6 +451,18 @@ emu_ld:
         mov a, m
         cpi $ed                         ; ED xx..
         jz emu_ed
+        cpi $10
+        jz emu_djnz
+        cpi $20
+        jz emu_jr_nz
+        cpi $30
+        jz emu_jr_nc
+        cpi $18
+        jz emu_jr
+        cpi $28
+        jz emu_jr_z
+        cpi $38
+        jz emu_jr_c
         jmp $
        
         ; ED prefix 
@@ -482,6 +509,83 @@ em_ed_ldrp_a16:
         ret
 
         
+emu_djnz:
+        ; b = b - 1
+        ; if b != 0, pc += im8 (signed)
+        lda guest_bc+1
+        dcr a
+        sta guest_bc+1
+        jnz emu_jr
+        inx h
+        inx h
+        shld guest_pc
+        ret
+emu_jr:
+        inx h
+        xra a
+        ora m
+        inx h
+        jp emu_jr_positive
+emu_jr_negative:        
+        add l
+        mov l, a
+        mov a, h
+        aci -1
+        mov h, a
+        shld guest_pc
+        ret
+emu_jr_positive:
+        add l
+        mov l, a
+        mov a, h
+        aci 0
+        mov h, a
+        shld guest_pc
+        ret
+emu_jr_nz:
+        xchg                            ; de <- guest pc
+        lhld guest_psw
+        push h
+        pop psw                         ; psw <- guest psw
+        xchg                            ; hl <- guest pc
+        jnz emu_jr                      ; ?cond -> jr
+        inx h                           ; else guest pc += 2
+        inx h
+        shld guest_pc
+        ret
+emu_jr_nc:
+        xchg                            ; de <- guest pc
+        lhld guest_psw
+        push h
+        pop psw                         ; psw <- guest psw
+        xchg                            ; hl <- guest pc
+        jnc emu_jr                      ; ?cond -> jr
+        inx h                           ; else guest pc += 2
+        inx h
+        shld guest_pc
+        ret
+emu_jr_z:
+        xchg                            ; de <- guest pc
+        lhld guest_psw
+        push h
+        pop psw                         ; psw <- guest psw
+        xchg                            ; hl <- guest pc
+        jz emu_jr                       ; ?cond -> jr
+        inx h                           ; else guest pc += 2
+        inx h
+        shld guest_pc
+        ret
+emu_jr_c:
+        xchg                            ; de <- guest pc
+        lhld guest_psw
+        push h
+        pop psw                         ; psw <- guest psw
+        xchg                            ; hl <- guest pc
+        jc emu_jr                       ; ?cond -> jr
+        inx h                           ; else guest pc += 2
+        inx h
+        shld guest_pc
+        ret
         
         
         ; opcode/break table
