@@ -3,7 +3,9 @@
         .tape v06c-rom
 
 ; todo:
-; [x] bit/res/set (tested)
+; [T] ld rp, (a16)
+; [x] ld (a16), rp      
+; [T] bit/res/set (tested)
 ; [x] implement rlc/rrc/rl/rr/srl etc from CB prefix (untested)
 
 ;  implement DD prefix (IX):  push/pop; ld ix, im16; inc/dec; ld sp,ix, ld l,(ix+nn), set 7,(ix+46)
@@ -536,6 +538,15 @@ emu_cb:
         jmp $
        
         ; ED prefix 
+        ; 4B    01_00_1011 ld bc, (a16)
+        ; 5B    01_01_1011 ld de, (a16)
+        ; 6B    01_10_1011 ld hl, (a16)
+        ; 7B    01_11_1011 ld sp, (a16)
+
+        ; LD (NN),BC              ; ED 43 XX XX
+        ; LD (NN),DE              ; ED 53 XX XX
+        ; LD (NN),HL*             ; ED 63 XX XX
+        ; LD (NN),SP              ; ED 73 XX XX
 emu_ed:
         inx h
         ; 48    01_00_1011 ld bc, (a16)
@@ -546,11 +557,13 @@ emu_ed:
         ana m
         cpi 0b01001011
         jz em_ed_ldrp_a16
+        cpi 0b01000011
+        jz em_ed_lda16_rp
         jmp $
         
         ; ld rp, (a16)
 em_ed_ldrp_a16:
-        mov b, m        ; b = 48/58/68/70
+        mov b, m        ; b = 4B/5B/6B/7B
         inx h
         mov e, m
         inx h
@@ -563,20 +576,52 @@ em_ed_ldrp_a16:
         mov d, m
         xchg            ; hl = mem[a16]
         mov a, b
-        cpi $48
+        cpi $4B
         jnz $+7
         shld guest_bc   ; ed 48 xx xx
         ret
-        cpi $58
+        cpi $5B
         jnz $+7
         shld guest_de   ; ed 58 xx xx
         ret
-        cpi $68
+        cpi $6B
         jnz $+7
         shld guest_hl   ; ed 68 xx xx
         ret
         shld guest_sp   ; ed 78 xx xx
         ret
+        
+em_ed_lda16_rp:  
+        mov b, m        ; b = 43/53/63/73
+        inx h
+        mov e, m
+        inx h
+        mov d, m        ; de = a16
+        inx h
+        shld guest_pc   ; update guest pc
+        mov a, b
+        cpi $43         ; ld (a16), bc
+        jnz $+9
+        lhld guest_bc
+        jmp _ed_lda16_rps
+        cpi $53         ; ld (a16), de
+        jnz $+9
+        lhld guest_de
+        jmp _ed_lda16_rps
+        cpi $63
+        jnz $+9
+        lhld guest_hl
+        jmp _ed_lda16_rps
+                        ; ld (a16), sp
+        lhld guest_sp
+_ed_lda16_rps:
+        xchg            ; de <- value, hl <- a16
+        mov m, e
+        inx h
+        mov m, d
+        ret
+        
+        
 
         
 emu_djnz:
