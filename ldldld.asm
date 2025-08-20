@@ -366,6 +366,8 @@ bptsave_t:      .db 0                   ; bpt branch if condition true, insn add
 bptsave_f_ptr:  .dw 0                   ; bpt false insn addr
 bptsave_f:      .db 0                   ; bpt branch if condition false, insn addr?
 
+guest_ix:       .dw 0
+guest_iy:       .dw 0
 ;guest_pc:       .dw 0
 ;guest_sp:       .dw 0
 ;guest_hl:       .dw 0
@@ -492,6 +494,8 @@ emu_ld:
         jz emu_ed
         cpi $cb
         jz emu_cb
+        cpi $dd                         ; ix...
+        jz emu_dd
         jmp $
        
         ; CB prefix: bit, res, set...
@@ -536,6 +540,26 @@ emu_cb:
         cpi $38
         jz emu_srl_r
         jmp $
+       
+        ; IX instructions
+emu_dd:
+        inx h
+        mov a, m
+        cpi $e1 \ jz emu_dd_popix
+        cpi $e5 \ jz emu_dd_pushix
+        cpi $f9 \ jz emu_dd_ldspix
+        cpi $cb \ jz emu_ddcb
+        cpi $21 \ jz emu_dd_ldixim16
+        cpi $22 \ jz emu_dd_lda16ix
+        cpi $23 \ jz emu_dd_incix
+        cpi $2a \ jz emu_dd_ldixa16
+        cpi $2b \ jz emu_dd_decix
+        cpi $09 \ jz emu_dd_addixbc
+        cpi $19 \ jz emu_dd_addixbe
+        cpi $29 \ jz emu_dd_addixix
+        cpi $39 \ jz emu_dd_addixsp
+        jmp $
+        
        
         ; ED prefix 
         ; 4B    01_00_1011 ld bc, (a16)
@@ -1001,6 +1025,104 @@ emu_srl_r:
         shld guest_pc
         ret
         
+        
+        ;;
+        ;; DD PREFIX / IX INSNS
+        ;; 
+emu_dd_popix:
+        inx h
+        shld guest_pc
+        lhld guest_sp
+        mov e, m
+        inx h
+        mov d, m
+        inx h
+        shld guest_sp
+        xchg
+        shld guest_ix
+        ret
+emu_dd_pushix:
+        inx h
+        shld guest_pc
+        lhld guest_ix
+        xchg
+        
+        lhld guest_sp
+        dcx h
+        mov m, d
+        dcx h
+        mov m, e
+        shld guest_sp
+        ret
+emu_dd_ldspix:
+        inx h
+        shld guest_pc
+        lhld guest_ix
+        shld guest_sp
+        ret
+emu_dd_ldixim16:
+        inx h
+        mov e, m
+        inx h
+        mov d, m
+        inx h
+        shld guest_pc
+        xchg
+        shld guest_ix
+        ret
+emu_dd_lda16ix:
+        inx h
+        mov e, m
+        inx h
+        mov d, m
+        inx h
+        shld guest_pc
+        lhld guest_ix
+        xchg
+        mov m, e
+        inx h
+        mov m, d
+        ret
+emu_dd_incix:
+        inx h
+        shld guest_pc
+        lhld guest_ix
+        inx h
+        shld guest_ix
+        ret
+emu_dd_ldixa16:
+        inx h
+        mov e, m
+        inx h
+        mov d, m
+        inx h
+        shld guest_pc
+        xchg
+        mov e, m
+        inx h
+        mov d, m
+        xchg
+        shld guest_ix
+        ret
+emu_dd_decix:
+        inx h
+        shld guest_pc
+        lhld guest_ix
+        dcx h
+        shld guest_ix
+        ret
+emu_dd_addixbc:
+        jmp $           ; todo
+emu_dd_addixbe:
+        jmp $           ; todo
+emu_dd_addixix:
+        jmp $           ; todo
+emu_dd_addixsp:
+        jmp $           ; todo
+
+        ; branch out to the unholy set of bit/set/res (ix)
+emu_ddcb:
+        jmp $
         
         ; opcode/break table
         ; 0 = through
