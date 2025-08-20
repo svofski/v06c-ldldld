@@ -8,10 +8,11 @@
 ; [T] bit/res/set (tested)
 ; [x] implement rlc/rrc/rl/rr/srl etc from CB prefix (untested)
 
-;  implement DD prefix (IX):  push/pop; ld ix, im16; inc/dec; ld sp,ix, ld l,(ix+nn), set 7,(ix+46)
-;  implement FD prefix (IY).. not used in rogue, but should be same as ix
-;  implement LDI/LDIR, 
-;            LDD/LDDR, CPD/CPDR, IND/INDR, OUTD/OTDR seem to be not used in rogue
+; [x] DD prefix (IX):  push/pop; ld ix, im16; inc/dec; ld sp,ix, ld l,(ix+nn), cp (ix+nn)
+; [x] DD CB prefix set 7,(ix+46); bit n, (ix+im8); res n, (ix+im8)
+; [ ] FD prefix (IY).. not used in rogue, but should be same as ix
+; [ ] LDI/LDIR, 
+; [ ] LDD/LDDR, CPD/CPDR, IND/INDR, OUTD/OTDR seem to be not used in rogue
 ;
 ; jnz $ etc -- these things never execute because bpt is inserted at jump
 
@@ -558,6 +559,14 @@ emu_dd:
         cpi $19 \ jz emu_dd_addixbe
         cpi $29 \ jz emu_dd_addixix
         cpi $39 \ jz emu_dd_addixsp
+        cpi $be \ jz emu_dd_cpixim8
+        cpi $ae \ jz emu_dd_xorixim8
+        cpi $9e \ jz emu_dd_sbcixim8
+        cpi $8e \ jz emu_dd_adcixim8
+        cpi $b6 \ jz emu_dd_orixim8
+        cpi $a6 \ jz emu_dd_andixim8
+        cpi $96 \ jz emu_dd_subixim8
+        cpi $86 \ jz emu_dd_addixim8
         jmp $
         
        
@@ -1120,9 +1129,118 @@ emu_dd_addixix:
 emu_dd_addixsp:
         jmp $           ; todo
 
-        ; branch out to the unholy set of bit/set/res (ix)
+
+        ; hl = ix + e
+        ; clobbers: de
+        ; bc untouched
+ix_plus_e_hl:
+        mvi d, 0
+        xra a
+        ora e
+        jp $+4
+        dcr d
+        lhld guest_ix
+        dad d
+        ret
+        
+        ; DD BE xx  CP (IX+r8) ###
+emu_dd_cpixim8:
+        inx h
+        mov e, m
+        inx h
+        shld guest_pc 
+        call ix_plus_e_hl       ; hl = ix + int8_t(e)
+        mov e, m
+        lda guest_psw+1         ; a = guest a
+        cmp e
+        push psw
+        pop d                   ; d <- a  e <- psw/f
+        mov a, e
+        sta guest_psw
+        ret        
+emu_dd_xorixim8:
+        jmp $           ; todo
+emu_dd_sbcixim8:
+        jmp $           ; todo
+emu_dd_adcixim8:
+        jmp $           ; todo
+emu_dd_orixim8:
+        jmp $           ; todo
+emu_dd_andixim8:
+        jmp $           ; todo
+emu_dd_subixim8:
+        jmp $           ; todo
+emu_dd_addixim8:
+        jmp $           ; todo
+
+        ; branch out to the unholy set of bit/set/res (ix + im8)
 emu_ddcb:
-        jmp $
+        inx h
+        mvi a, 0b11000111       ; bit n, (ix+im8) : 01nnn110
+        ana m
+        cpi 0b01000110
+        jz ddcb_bitixim8
+        cpi 0b10000110          ; res n, (ix+im8): 10nnn110
+        jz ddcb_resixim8
+        cpi 0b11000110          ; set n, (ix+im8): 11nnn110
+        jz ddcb_setixim8
+        jmp $                   ; rlc/rl/sla/rrc/rr/sra/srl - sorry
+
+        ; bit n, (ix+im8)
+ddcb_bitixim8:
+        push h
+        inx h
+        mov e, m
+        inx h
+        shld guest_pc 
+        call ix_plus_e_hl       ; hl = ix + int8_t(e)
+        mov b, m                ; e <- mem[ix+im8]
+
+        pop h
+        call getbit_a
+        ana b
+        push psw
+        pop b                   ; b <- a, c <- f
+        mov a, c
+        sta guest_psw
+        ret
+        
+        ; res n, (ix+im8)
+ddcb_resixim8:
+        push h
+          inx h
+          mov e, m
+          inx h
+          shld guest_pc 
+        pop h
+        call getbit_a
+        cma
+        mov b, a
+        
+        call ix_plus_e_hl       ; hl = ix + int8_t(e)
+        mov a, m                ; a <- mem[ix+im8]
+
+        ana b                   ; a = a & ~bitval
+        mov m, a
+        ret
+        
+        ; set n, (ix+im8)
+ddcb_setixim8:
+        push h
+          inx h
+          mov e, m
+          inx h
+          shld guest_pc 
+        pop h
+        call getbit_a
+        mov b, a
+        
+        call ix_plus_e_hl       ; hl = ix + int8_t(e)
+        mov a, m                ; a <- mem[ix+im8]
+
+        ora b                   ; a = a & ~bitval
+        mov m, a
+        ret
         
         ; opcode/break table
         ; 0 = through
