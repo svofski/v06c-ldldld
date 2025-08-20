@@ -11,8 +11,8 @@
 ; [x] DD prefix (IX):  push/pop; ld ix, im16; inc/dec; ld sp,ix, ld l,(ix+nn), cp (ix+nn)
 ; [x] DD CB prefix set 7,(ix+46); bit n, (ix+im8); res n, (ix+im8)
 ; [x] ED: LDI/LDIR, 
+; [ ] FD prefix (IY).. should be same as ix?
 ; [ ] LDD/LDDR, CPD/CPDR, IND/INDR, OUTD/OTDR seem to be not used in rogue
-; [ ] FD prefix (IY).. not used in rogue, but should be same as ix
 ;
 ; jnz $ etc -- these things never execute because bpt is inserted at jump
 
@@ -580,6 +580,8 @@ emu_ld:
         jz emu_cb
         cpi $dd                         ; ix...
         jz emu_dd
+        cpi $fd
+        jz emu_fd
         jmp $
        
         ; CB prefix: bit, res, set...
@@ -624,6 +626,29 @@ emu_cb:
         cpi $38
         jz emu_srl_r
         jmp $
+       
+       ; IY instructions -- attempt to fake it by switching IX<->IY
+emu_fd:       
+       push h
+         lhld guest_ix  
+         xchg
+         lhld guest_iy          ; de <- ix, hl <- iy
+         shld guest_ix          ; ix <- old iy
+         xchg
+         shld guest_iy          ; iy <- old ix
+        pop h
+        call emu_dd
+        
+        ; swap back
+        lhld guest_ix
+        xchg
+        lhld guest_iy
+        shld guest_ix
+        xchg
+        shld guest_iy
+        
+        ret
+
        
         ; IX instructions
 emu_dd:
@@ -675,6 +700,8 @@ emu_ed:
         jz em_ed_ldrp_a16
         cpi 0b01000011
         jz em_ed_lda16_rp
+        cpi 0b01001010   ; adc hl,ss
+        jz em_ed_adchlss
         mov a, m
         cpi $a0 \        jz ed_ldi
         cpi $b0 \        jz ed_ldir
@@ -789,9 +816,57 @@ _ed_lda16_rps:
         mov m, d
         ret
         
+        ; adc hl, bc/de/hl/sp
+        ; hl <- hl + rp + CY
+        ; 
+        ; S is set if result is negative; otherwise, it is reset.
+        ; Z is set if result is 0; otherwise, it is reset.
+        ; H is set if carry from bit 11; otherwise, it is reset.
+        ; P/V is set if overflow; otherwise, it is reset
+        ; N is reset.
+        ; C is set if carry from bit 15; otherwise, it is reset
+em_ed_adchlss:
+        mov a, m ; 4a:bc,5a:de,6a:hl,7a:sp
+        inx h
+        shld guest_pc
+        cpi $4a
+        jnz $+9
+        lhld guest_bc \ jmp _adchlss2
+        cpi $5a
+        jnz $+9
+        lhld guest_de \ jmp _adchlss2
+        cpi $6a
+        jnz $+9
+        lhld guest_hl \ jmp _adchlss2
+        lhld guest_sp
+_adchlss2:
+        xchg            ; de <- ss
         
+        lda guest_psw
+        ani $1          ; carry
+        add e
+        mov e, a
+        mov a, d
+        aci 0
+        mov d, a
+        ;
+        lhld guest_hl
+        dad d           ; hl <- guest_hl + ss
+        shld guest_hl
+        ; 8080 dad is unsigned
+        push psw
+        pop d           ; e = flags
+        mvi a, $7f
+        ana e
+        mov e, a
+        xra a
+        ora h
+        mov a, e
+        jp $+5
+        ori $80         ; set sign bit
+        sta guest_psw
+        ret
 
-        
 emu_djnz:
         ; b = b - 1
         ; if b != 0, pc += im8 (signed)
@@ -1321,7 +1396,18 @@ emu_dd_addixbe:
 emu_dd_addixix:
         jmp $           ; todo
 emu_dd_addixsp:
-        jmp $           ; todo
+        inx h
+        shld guest_pc
+        lhld guest_sp
+        xchg
+        lhld guest_ix
+        dad d
+        shld guest_ix
+        push psw
+        pop b
+        mov a, c
+        sta guest_psw
+        ret
 
 
         ; hl = ix + e
