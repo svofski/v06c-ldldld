@@ -10,9 +10,9 @@
 
 ; [x] DD prefix (IX):  push/pop; ld ix, im16; inc/dec; ld sp,ix, ld l,(ix+nn), cp (ix+nn)
 ; [x] DD CB prefix set 7,(ix+46); bit n, (ix+im8); res n, (ix+im8)
-; [ ] FD prefix (IY).. not used in rogue, but should be same as ix
-; [ ] LDI/LDIR, 
+; [x] ED: LDI/LDIR, 
 ; [ ] LDD/LDDR, CPD/CPDR, IND/INDR, OUTD/OTDR seem to be not used in rogue
+; [ ] FD prefix (IY).. not used in rogue, but should be same as ix
 ;
 ; jnz $ etc -- these things never execute because bpt is inserted at jump
 
@@ -592,6 +592,15 @@ emu_ed:
         jz em_ed_ldrp_a16
         cpi 0b01000011
         jz em_ed_lda16_rp
+        mov a, m
+        cpi $a0 \        jz ed_ldi
+        cpi $b0 \        jz ed_ldir
+        cpi $a1 \        jz ed_cpi
+        cpi $b1 \        jz ed_cpir
+        cpi $a8 \        jz ed_ldd
+        cpi $b8 \        jz ed_lddr
+        cpi $a9 \        jz ed_cpd
+        cpi $b9 \        jz ed_cpdr
         jmp $
         
         ; ld rp, (a16)
@@ -734,7 +743,66 @@ emu_jr_c:
         inx h
         shld guest_pc
         ret
+       
+        ; LDI – Load (DE) → (HL), ++DE, ++HL, --BC 
+ed_ldi:
+        inx h
+        shld guest_pc
         
+        lhld guest_de
+        xchg
+        lhld guest_hl
+        ldax d
+        mov m, a
+        inx d
+        inx h
+        shld guest_hl
+        xchg
+        shld guest_de
+        lhld guest_bc
+        dcx h
+        shld guest_bc
+        ret
+ed_ldir:
+        inx h
+        shld guest_pc
+        
+        lhld guest_bc
+        mov b, h
+        mov c, l
+
+        lhld guest_de
+        xchg
+        lhld guest_hl
+        
+_ldir_loop:        
+        ldax d \ inx d
+        mov m, a \ inx h
+        dcx b
+        mov a, b
+        ora c
+        jnz _ldir_loop
+        
+        shld guest_hl
+        xchg
+        shld guest_de
+        lxi h, 0
+        shld guest_bc
+        ; flags? N=0, H=0, others unaffected
+        ret
+ed_cpi:
+        jmp $
+ed_cpir:
+        jmp $
+ed_ldd:
+        jmp $
+ed_lddr:
+        jmp $
+ed_cpd:
+        jmp $
+ed_cpdr:
+        jmp $
+
         ; align 256
         .org 0100h + $ & $ff00
 bit_value:
