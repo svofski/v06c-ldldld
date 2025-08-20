@@ -16,7 +16,7 @@
 ;
 ; jnz $ etc -- these things never execute because bpt is inserted at jump
 
-traptab_org     .equ $7000
+traptab_org     .equ $9000
 host_org        .equ traptab_org + $100
 bpt_stack       .equ traptab_org 
 guest_stack     .equ traptab_org - 64
@@ -222,8 +222,8 @@ install_handlers:
         shld 5*8+1
         lxi h, rst6_hand
         shld 6*8+1
-        lxi h, rst7_hand
-        shld 7*8+1
+        ;lxi h, rst7_hand
+        ;shld 7*8+1
 run_guest:
         ;lxi h, test_guest ;$100
         lxi h, $100
@@ -232,8 +232,8 @@ run_guest:
         shld guest_sp
         jmp rst5_scan
         
-rst7_hand:
-        ret
+;rst7_hand:
+;        ret
         
         ; emulated instructions
 rst3_hand:
@@ -946,7 +946,7 @@ emu_jr_c:
         shld guest_pc
         ret
        
-        ; LDI – Load (DE) → (HL), ++DE, ++HL, --BC 
+        ; LDI – Load (DE) <- (HL), ++DE, ++HL, --BC 
 ed_ldi:
         inx h
         shld guest_pc
@@ -954,8 +954,10 @@ ed_ldi:
         lhld guest_de
         xchg
         lhld guest_hl
-        ldax d
-        mov m, a
+        ;ldax d
+        ;mov m, a
+        mov a, m
+        stax d
         inx d
         inx h
         shld guest_hl
@@ -978,8 +980,10 @@ ed_ldir:
         lhld guest_hl
         
 _ldir_loop:        
-        ldax d \ inx d
-        mov m, a \ inx h
+        ;ldax d \ inx d
+        ;mov m, a \ inx h
+        mov a, m \ inx h
+        stax d \ inx d
         dcx b
         mov a, b
         ora c
@@ -1558,7 +1562,7 @@ traptab:
         .db 1 ; $03 	inc bc		inx	b
         .db 1 ; $04 	inc b		inr	b
         .db 1 ; $05 	dec b		dcr	b
-        .db 1 ; $06 	ld b,000h	mvi	b,0
+        .db 2 ; $06 	ld b,000h	mvi	b,0
         .db 1 ; $07 	rlca		rlc
         .db 0 ; $08 	ex af,af'       ####
         .db 1 ; $09 	add hl,bc	dad	b
@@ -1574,7 +1578,7 @@ traptab:
         .db 1 ; $13 	inc de		inx	d
         .db 1 ; $14 	inc d		inr	d
         .db 1 ; $15 	dec d		dcr	d
-        .db 1 ; $16 	ld d,000h	mvi	d,0
+        .db 2 ; $16 	ld d,000h	mvi	d,0
         .db 1 ; $17 	rla		ral
         .db 0 ; $18 	jr $+2	        #######################
         .db 1 ; $19 	add hl,de	dad	d
@@ -1598,7 +1602,7 @@ traptab:
         .db 1 ; $2b 	dec hl		dcx	h
         .db 1 ; $2c 	inc l		inr	l
         .db 1 ; $2d 	dec l		dcr	l
-        .db 3 ; $2e 	ld l,000h	mvi	l,0
+        .db 2 ; $2e 	ld l,000h	mvi	l,0
         .db 1 ; $2f 	cpl		cma
         .db 0 ; $30 	jr nc,$+2	#######################
         .db 3 ; $31 	ld sp,0000	lxi	sp,X0000
