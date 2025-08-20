@@ -48,6 +48,19 @@ OPC_JMP         .equ $c3
 
 FLAGBIT_C       .equ $01
 
+fcb1            .equ $5c                ; default fcb
+        ; BDOS functions
+C_WRITE         .equ 2
+C_WRITESTR      .equ 9        
+F_OPEN          .equ 15          ; open file
+F_CLOSE         .equ 16
+F_READ          .equ 20          ; read next record
+F_READRAND      .equ 33          ; read random record
+F_WRITERAND     .equ 34          ; write random record
+
+FCB_SIZE        .equ 36
+
+
         .org $100
         jmp host_org
         ; test program
@@ -127,8 +140,59 @@ test_3:
         di
         lxi sp, bpt_stack
 
+load_guest:
+        lxi h, $100
+        push h
+        
+          lxi d, fcb1
+          mvi c, F_OPEN
+          call 5
+          ora a
+          jm err_loadguest
+_lg_loop:
+          lxi d, fcb1
+          mvi c, F_READ
+          call 5
+          ora a
+          jz _lg_read_ok
+          dcr a
+          jz _lg_read_eof
+          jmp err_loadguest
+_lg_read_ok:
+          lxi d, $80
+          mvi c, 128
+        pop h
+_lg_memcpy_l:        
+        ldax d \ inx d \ mov m, a \ inx h
+        dcr c
+        jnz _lg_memcpy_l
+        push h
+          jmp _lg_loop          
+_lg_read_eof:
+        pop h
+        ; wipe out dma and fcb so that the guest doesn't confuse itself
+        lxi h, fcb1
+        mvi m, 0
+        inx h
+        mvi m, ' '
+        lxi h, $80
+        xra a
+        mov m, a \ inr l
+        jnz $-2
+        jmp load_guest_exit
+
+err_loadguest:
+        pop h
+        rst 0
+        ;...
+load_guest_exit:        
+        ;
+        
         ; create a fake cp/m vectors table
 install_hooks:
+        lda 2
+        dcr a
+        sta 2
         lhld 6          ; cp/m start
         dcr h           ; 256 bytes lower
         shld 6
@@ -142,8 +206,7 @@ _ih_lup:
         jnz _ih_lup
 
 
-load_guest:
-        ;...
+        
 install_handlers:
         mvi a, OPC_JMP
         sta 3*8
@@ -162,7 +225,8 @@ install_handlers:
         lxi h, rst7_hand
         shld 7*8+1
 run_guest:
-        lxi h, test_guest ;$100
+        ;lxi h, test_guest ;$100
+        lxi h, $100
         shld guest_pc
         lxi h, guest_stack
         shld guest_sp
@@ -620,8 +684,18 @@ emu_ed:
         cpi $b8 \        jz ed_lddr
         cpi $a9 \        jz ed_cpd
         cpi $b9 \        jz ed_cpdr
+        cpi $5f \        jz ed_ldar
         cpi $ed \        jz eded_cpmhook
         jmp $
+        
+        ; todo: find some entropy source in necrodos
+ed_ldar:
+        inx h
+        shld guest_pc
+        mvi a, 4 ; chosen by fair dice roll
+                 ; guarranteed to be random
+        sta guest_psw+1
+        ret
         
         ; find cp/m vector substitute (e.g. BF00 -> C000)
         ; forward call to cp/m and return back to caller code
