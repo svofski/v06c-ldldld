@@ -675,6 +675,7 @@ emu_dd:
         cpi $a6 \ jz emu_dd_andixim8
         cpi $96 \ jz emu_dd_subixim8
         cpi $86 \ jz emu_dd_addixim8
+        cpi $e3 \ jz emu_dd_exspix
         jmp $
         
        
@@ -1332,12 +1333,32 @@ emu_dd_pushix:
         mov m, e
         shld guest_sp
         ret
+        
+        ; ex (sp), ix
+emu_dd_exspix:
+        inx h
+        shld guest_pc
+        
+        lhld guest_ix
+        xchg            
+        lhld guest_sp   ; de <- ix, hl <- sp
+        mov c, m
+        mov m, e
+        inx h
+        mov b, m        ; bc <- (sp), (sp) <- ix
+        mov m, d
+        mov h, b
+        mov l, c        ; hl <- old (sp)
+        shld guest_ix   ; ix <- old (sp)
+        ret
+        
 emu_dd_ldspix:
         inx h
         shld guest_pc
         lhld guest_ix
         shld guest_sp
         ret
+        
 emu_dd_ldixim16:
         inx h
         mov e, m
