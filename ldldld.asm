@@ -24,6 +24,9 @@ guest_stack     .equ traptab_org - 64
 guest_bc        .equ bpt_stack - 2
 guest_de        .equ bpt_stack - 4
 
+OPC_RST0        .equ $c7        
+OPC_RST1        .equ $cf
+OPC_RST2        .equ $d7
 OPC_RST3        .equ $df                ; emulated insn trap
 OPC_RST4        .equ $e7                ; bpt after single-ended branch
 OPC_RST5        .equ $ef                ; bpt after forked branch
@@ -123,6 +126,22 @@ test_3:
         ; load guest program to TPA
         di
         lxi sp, bpt_stack
+
+        ; create a fake cp/m vectors table
+install_hooks:
+        lhld 6          ; cp/m start
+        dcr h           ; 256 bytes lower
+        shld 6
+        
+        ; fill vectors with fake instructions EDED+RET
+        mvi c, 16       ; how many vectors?
+        mvi b, $ed      ; ed-ed for cp/m hyperswitch
+_ih_lup:        
+        mov m, b \ inx h \ mov m, b \ inx h \ mvi m, $c9 \ inx h
+        dcr c
+        jnz _ih_lup
+
+
 load_guest:
         ;...
 install_handlers:
@@ -601,7 +620,40 @@ emu_ed:
         cpi $b8 \        jz ed_lddr
         cpi $a9 \        jz ed_cpd
         cpi $b9 \        jz ed_cpdr
+        cpi $ed \        jz eded_cpmhook
         jmp $
+        
+        ; find cp/m vector substitute (e.g. BF00 -> C000)
+        ; forward call to cp/m and return back to caller code
+eded_cpmhook:
+        inx h
+        shld guest_pc
+        dcx h
+        dcx h           ; eded address = cp/m vector address - 256
+        inr h
+        shld _cpmhook_vec
+
+        lhld guest_psw
+        push h
+          lhld guest_bc
+          mov b, h
+          mov c, l
+          lhld guest_de
+          xchg
+          lhld guest_hl
+        pop psw
+_cpmhook_vec .equ $+1        
+        call 0
+        push psw
+          shld guest_hl
+          xchg
+          shld guest_de
+          mov h, b
+          mov l, c
+          shld guest_bc
+        pop h
+        shld guest_psw
+        ret
         
         ; ld rp, (a16)
 em_ed_ldrp_a16:
