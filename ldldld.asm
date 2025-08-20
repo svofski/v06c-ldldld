@@ -846,12 +846,9 @@ _adchlss2:
         xchg            ; de <- ss
         
         lda guest_psw
-        ani $1          ; carry
-        add e
-        mov e, a
-        mov a, d
-        aci 0
-        mov d, a
+        rar
+        jnc $+4
+        inx d
         ;
         lhld guest_hl
         dad d           ; hl <- guest_hl + ss
@@ -891,9 +888,9 @@ _sbchlss2:
         lhld guest_hl
         ; sbc hl, de
         lda guest_psw
-        rar
+        rar                     ; test c
         jnc $+4
-        dcx h
+        dcx h                   ; subtract carry in 
 
         mov a, l
         sub e
