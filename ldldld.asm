@@ -3,8 +3,8 @@
         .tape v06c-rom
 
 ; todo:
-;  test bit/res/set
-; implement rl/rr/srl etc from CB prefix
+; [x] bit/res/set (tested)
+; [x] implement rlc/rrc/rl/rr/srl etc from CB prefix (untested)
 
 ;  implement DD prefix (IX):  push/pop; ld ix, im16; inc/dec; ld sp,ix, ld l,(ix+nn), set 7,(ix+46)
 ;  implement FD prefix (IY).. not used in rogue, but should be same as ix
@@ -57,8 +57,6 @@ test_guest:
         ;
         mvi e, 0
         
-        ;CBFB CBCB CBD3 CB93 CB03
-        
         ; set 7, e      e <- $80
         .db $CB, $FB
         ; set 1, e      e <- $82
@@ -80,6 +78,7 @@ test_guest:
         ; expect carry bit set
         jc $+6
         jmp $
+        
 
         ;
         ;     jr t1
@@ -802,7 +801,7 @@ emu_rlc_r:
         push h
         push h
         call getreg_a
-        ral
+        rlc
         mov b, a                ; save result in b
         pop h
         
@@ -820,19 +819,142 @@ emu_rlc_r:
         shld guest_pc
         ret
 emu_rrc_r:
-        jmp $
+        push h
+        push h
+        call getreg_a
+        rrc
+        mov b, a                ; save result in b
+        pop h
+        
+        lda guest_psw           ; update carry bit in guest psw
+        jc $+8
+        ani ~(FLAGBIT_C)
+        jmp $+5
+        ori FLAGBIT_C
+        sta guest_psw
+        
+        mov a, b                ; result
+        call setreg_a
+        pop h
+        inx h
+        shld guest_pc
+        ret
 emu_rl_r:
-        jmp $
+        push h
+        push h
+        call getreg_a
+        ral
+        mov b, a                ; save result in b
+        pop h
+        
+        lda guest_psw           ; update carry bit in guest psw
+        jc $+8
+        ani ~(FLAGBIT_C)
+        jmp $+5
+        ori FLAGBIT_C
+        sta guest_psw
+        
+        mov a, b                ; result
+        call setreg_a
+        pop h
+        inx h
+        shld guest_pc
+        ret
 emu_rr_r:
-        jmp $
+        push h
+        push h
+        call getreg_a
+        rar
+        mov b, a                ; save result in b
+        pop h
+        
+        lda guest_psw           ; update carry bit in guest psw
+        jc $+8
+        ani ~(FLAGBIT_C)
+        jmp $+5
+        ori FLAGBIT_C
+        sta guest_psw
+        
+        mov a, b                ; result
+        call setreg_a
+        pop h
+        inx h
+        shld guest_pc
+        ret
 emu_sla_r:
-        jmp $
+        push h
+        push h
+        call getreg_a
+        ora a
+        ral
+        mov b, a                ; save result in b
+        pop h
+        
+        lda guest_psw           ; update carry bit in guest psw
+        jc $+8
+        ani ~(FLAGBIT_C)
+        jmp $+5
+        ori FLAGBIT_C
+        sta guest_psw
+        
+        mov a, b                ; result
+        call setreg_a
+        pop h
+        inx h
+        shld guest_pc
+        ret
 emu_sra_r:
-        jmp $
+        push h
+        push h
+        call getreg_a
+        
+        ora a
+        jp $+4
+        stc
+        rar
+        
+        mov b, a                ; save result in b
+        pop h
+        
+        lda guest_psw           ; update carry bit in guest psw
+        jc $+8
+        ani ~(FLAGBIT_C)
+        jmp $+5
+        ori FLAGBIT_C
+        sta guest_psw
+        
+        mov a, b                ; result
+        call setreg_a
+        pop h
+        inx h
+        shld guest_pc
+        ret
 emu_sll_r:
-        jmp $
+        jmp $                   ; undocumented
 emu_srl_r:
-        jmp $
+        push h
+        push h
+        call getreg_a
+        
+        ora a                   ; C <- 0
+        rar
+        
+        mov b, a                ; save result in b
+        pop h
+        
+        lda guest_psw           ; update carry bit in guest psw
+        jc $+8
+        ani ~(FLAGBIT_C)
+        jmp $+5
+        ori FLAGBIT_C
+        sta guest_psw
+        
+        mov a, b                ; result
+        call setreg_a
+        pop h
+        inx h
+        shld guest_pc
+        ret
         
         
         ; opcode/break table
