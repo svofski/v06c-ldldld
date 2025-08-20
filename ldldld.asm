@@ -2,18 +2,17 @@
         .project ldldld.com
         .tape v06c-rom
 
+; todo:
+;  test bit/res/set
+; implement rl/rr/srl etc from CB prefix
 
-        
-        ; main loop:
-        ; 1. restore old instructions (both outcomes)
-        ; from guest PC scan forward until branch or emulated
-        ; at branch position insert rst 5/28
-        ;   cond: insert rst at both outcomes
-        ; or -- insert two rst5 at both branch outcomes
-        
-        ; at emt position insert rst 4/20
-        ; go!
-        
+;  implement DD prefix (IX):  push/pop; ld ix, im16; inc/dec; ld sp,ix, ld l,(ix+nn), set 7,(ix+46)
+;  implement FD prefix (IY).. not used in rogue, but should be same as ix
+;  implement LDI/LDIR, 
+;            LDD/LDDR, CPD/CPDR, IND/INDR, OUTD/OTDR seem to be not used in rogue
+;
+; jnz $ etc -- these things never execute because bpt is inserted at jump
+
 traptab_org     .equ $7000
 host_org        .equ traptab_org + $100
 bpt_stack       .equ traptab_org 
@@ -41,6 +40,8 @@ OPC_PCHL        .equ $e9
 
 OPC_JMP         .equ $c3
 
+FLAGBIT_C       .equ $01
+
         .org $100
         jmp host_org
         ; test program
@@ -52,9 +53,34 @@ test_guest:
         cnz test_2
         call test_3
         ;
-        db $ed, $7b, $06, $00   ; ld sp, (6)
+        .db $ed, $7b, $06, $00   ; ld sp, (6)
         ;
+        mvi e, 0
         
+        ;CBFB CBCB CBD3 CB93 CB03
+        
+        ; set 7, e      e <- $80
+        .db $CB, $FB
+        ; set 1, e      e <- $82
+        .db $CB, $CB
+        ; set 2, e      e <- $86
+        .db $CB, $D3
+        ; res 2, e      e <- $82
+        .db $CB, $93
+        ; bit 2, e:  expect z
+        .db $CB, $53
+        jz $+6
+        jmp $
+        ; bit 1, e: expect nz
+        .db $CB, $4B
+        jnz $+6
+        jmp $
+        ; rlc e 
+        .db $CB, $03
+        ; expect carry bit set
+        jc $+6
+        jmp $
+
         ;
         ;     jr t1
         ; t2: 
@@ -491,6 +517,7 @@ emu_cb:
         cpi 0b11000000
         jz emu_set
         mvi a, 0b11111000
+        ana m
         cpi $00
         jz emu_rlc_r
         cpi $08
@@ -681,6 +708,7 @@ _grsw_7_m_real:
         ret
         
 setreg_a:
+        mov b, a
         mvi a, 0b00000111
         ana m
         ral \ ral       ; ofs = reg * 4
@@ -688,6 +716,7 @@ setreg_a:
         mvi d, 0
         lxi h, setreg_switch
         dad d
+        mov a, b
         pchl
 
 setreg_switch:
@@ -770,7 +799,26 @@ emu_set:
         shld guest_pc
         ret
 emu_rlc_r:
-        jmp $
+        push h
+        push h
+        call getreg_a
+        ral
+        mov b, a                ; save result in b
+        pop h
+        
+        lda guest_psw           ; update carry bit in guest psw
+        jc $+8
+        ani ~(FLAGBIT_C)
+        jmp $+5
+        ori FLAGBIT_C
+        sta guest_psw
+        
+        mov a, b                ; result
+        call setreg_a
+        pop h
+        inx h
+        shld guest_pc
+        ret
 emu_rrc_r:
         jmp $
 emu_rl_r:
