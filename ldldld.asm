@@ -664,7 +664,7 @@ emu_dd:
         cpi $2a \ jz emu_dd_ldixa16
         cpi $2b \ jz emu_dd_decix
         cpi $09 \ jz emu_dd_addixbc
-        cpi $19 \ jz emu_dd_addixbe
+        cpi $19 \ jz emu_dd_addixde
         cpi $29 \ jz emu_dd_addixix
         cpi $39 \ jz emu_dd_addixsp
         cpi $be \ jz emu_dd_cpixim8
@@ -703,6 +703,8 @@ emu_ed:
         jz em_ed_lda16_rp
         cpi 0b01001010   ; adc hl,ss
         jz em_ed_adchlss
+        cpi 0b01000010   ; sbc hl,ss
+        jz em_ed_sbchlss
         mov a, m
         cpi $a0 \        jz ed_ldi
         cpi $b0 \        jz ed_ldir
@@ -865,6 +867,46 @@ _adchlss2:
         mov a, e
         jp $+5
         ori $80         ; set sign bit
+        sta guest_psw
+        ret
+
+        ; sbc hl, ss
+        ; hl <- hl - ss - CY
+em_ed_sbchlss:
+        mov a, m        ; 42:bc 52:de 62:hl 72:sp
+        inx h
+        shld guest_pc
+        cpi $42
+        jnz $+9
+        lhld guest_bc \ jmp _sbchlss2
+        cpi $52
+        jnz $+9
+        lhld guest_de \ jmp _sbchlss2
+        cpi $62
+        jnz $+9
+        lhld guest_hl \ jmp _sbchlss2
+        lhld guest_sp
+_sbchlss2:
+        xchg
+        lhld guest_hl
+        ; sbc hl, de
+        lda guest_psw
+        rar
+        jnc $+4
+        dcx h
+
+        mov a, l
+        sub e
+        mov l, a
+        mov a, h
+        sbb d
+        mov h, a
+        shld guest_hl
+        
+        ; flags
+        push psw
+        pop b
+        mov a, c
         sta guest_psw
         ret
 
@@ -1415,11 +1457,44 @@ emu_dd_decix:
         shld guest_ix
         ret
 emu_dd_addixbc:
-        jmp $           ; todo
-emu_dd_addixbe:
-        jmp $           ; todo
+        inx h
+        shld guest_pc
+        lhld guest_bc
+        xchg
+        lhld guest_ix
+        dad d
+        shld guest_ix
+        push psw
+        pop b
+        mov a, c
+        sta guest_psw
+        ret
+emu_dd_addixde:
+        inx h
+        shld guest_pc
+        lhld guest_de
+        xchg
+        lhld guest_ix
+        dad d
+        shld guest_ix
+        push psw
+        pop b
+        mov a, c
+        sta guest_psw
+        ret
 emu_dd_addixix:
-        jmp $           ; todo
+        inx h
+        shld guest_pc
+        lhld guest_ix
+        mov d, h
+        mov e, l
+        dad d
+        shld guest_ix
+        push psw
+        pop b
+        mov a, c
+        sta guest_psw
+        ret
 emu_dd_addixsp:
         inx h
         shld guest_pc
