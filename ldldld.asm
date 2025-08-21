@@ -14,7 +14,19 @@
 ; [ ] FD prefix (IY).. should be same as ix?
 ; [ ] LDD/LDDR, CPD/CPDR, IND/INDR, OUTD/OTDR seem to be not used in rogue
 ;
+; FIXME
+; 
+; [ ] srl, rr, rl   set/reset Z flag
+; [x] rl,rr,rlc,rrc ignores carry in
+; [ ] add ix, rp    set/reset Z flag like adc hl,rp
+;
 ; jnz $ etc -- these things never execute because bpt is inserted at jump
+;
+; implement:
+;   emu_dd_ldrixim8:
+;   emu_dd_ldixim8r
+;   ed_neg
+
 
 traptab_org     .equ $9000
 host_org        .equ traptab_org + $100
@@ -676,8 +688,14 @@ emu_dd:
         cpi $96 \ jz emu_dd_subixim8
         cpi $86 \ jz emu_dd_addixim8
         cpi $e3 \ jz emu_dd_exspix
+        ani 0b11000111  ; 
+        cpi 0b01000110  ; LD r,(IX+im8)
+        jz emu_dd_ldrixim8
+        mov a, m
+        ani 0b11111000
+        cpi 0b01110000  ; LD (IX+im8),r
+        jz emu_dd_ldixim8r
         jmp $
-        
        
         ; ED prefix 
         ; 4B    01_00_1011 ld bc, (a16)
@@ -715,6 +733,7 @@ emu_ed:
         cpi $a9 \        jz ed_cpd
         cpi $b9 \        jz ed_cpdr
         cpi $5f \        jz ed_ldar
+        cpi $44 \        jz ed_neg
         cpi $ed \        jz eded_cpmhook
         jmp $
         
@@ -726,6 +745,8 @@ ed_ldar:
                  ; guarranteed to be random
         sta guest_psw+1
         ret
+ed_neg:
+        jmp $
         
         ; find cp/m vector substitute (e.g. BF00 -> C000)
         ; forward call to cp/m and return back to caller code
@@ -853,20 +874,28 @@ _adchlss2:
         lhld guest_hl
         dad d           ; hl <- guest_hl + ss
         shld guest_hl
-        ; 8080 dad is unsigned
+        ; 8080 dad only sets C, we also want Z and S
         push psw
         pop d           ; e = flags
-        mvi a, $7f
+        mvi a, $3f      ; clear S Z
         ana e
         mov e, a
         xra a
         ora h
-        mov a, e
-        jp $+5
-        ori $80         ; set sign bit
+        jp _adchlss3
+        mvi a, $80
+        ora e           ; set S sign bit
+_adchlss4:
         sta guest_psw
         ret
-
+_adchlss3:
+        ora l
+        jnz _adchlss4
+        mvi a, $40
+        ora e           ; set Z zero bit
+        sta guest_psw
+        ret
+        
         ; sbc hl, ss
         ; hl <- hl - ss - CY
 em_ed_sbchlss:
@@ -1192,6 +1221,11 @@ emu_rlc_r:
         push h
         push h
         call getreg_a
+        mov b, a
+        lda guest_psw           ; 
+        rar                     ; guest carry -> c
+        mov a, b
+        
         rlc
         mov b, a                ; save result in b
         pop h
@@ -1213,6 +1247,12 @@ emu_rrc_r:
         push h
         push h
         call getreg_a
+
+        mov b, a
+        lda guest_psw           ; 
+        rar                     ; guest carry -> c
+        mov a, b
+        
         rrc
         mov b, a                ; save result in b
         pop h
@@ -1234,6 +1274,10 @@ emu_rl_r:
         push h
         push h
         call getreg_a
+        mov b, a
+        lda guest_psw           ; 
+        rar                     ; guest carry -> c
+        mov a, b
         ral
         mov b, a                ; save result in b
         pop h
@@ -1255,6 +1299,10 @@ emu_rr_r:
         push h
         push h
         call getreg_a
+        mov b, a
+        lda guest_psw           ; 
+        rar                     ; guest carry -> c
+        mov a, b
         rar
         mov b, a                ; save result in b
         pop h
@@ -1549,6 +1597,12 @@ emu_dd_subixim8:
         jmp $           ; todo
 emu_dd_addixim8:
         jmp $           ; todo
+
+emu_dd_ldrixim8:
+        jmp $
+emu_dd_ldixim8r
+        jmp $
+
 
         ; branch out to the unholy set of bit/set/res (ix + im8)
 emu_ddcb:
