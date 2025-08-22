@@ -478,7 +478,8 @@ scan_until_br:
         mov e, m
         ldax d
         ora a
-        jm scubr_fork                   ;
+        ;jm scubr_fork                   ;
+        jm scubr_br_btw
         jz scubr_emulate
         add l
         mov l, a
@@ -556,6 +557,19 @@ scubr_1bbr:
         shld bptsave_f_ptr
         mvi m, OPC_RST6
         ret
+        
+        ; first instruction in the run is a branch: emulate in-place
+        ; instead of scubr_fork
+scubr_br_btw:
+        ;jpo brip_jmplike
+        jpo scubr_3bbr          ; for now 3-jmp set rst5
+        
+brip_retlike:
+        call emu_br1            ; perform branch
+        lhld guest_pc           ; hl <- guest_pc
+        jmp scan_until_br       ; scan again
+;brip_jmplike:
+;        jmp $
         
 
         ; hl = guest pc
