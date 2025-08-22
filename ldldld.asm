@@ -549,14 +549,22 @@ scubr_3bbr:
         inx h
         xchg                            ; hl <- branch dst, de <- pc + 3
         mov a, m                        ; bptsave_t = mem[br dst]
+        mov b, a                        ; also save in b just in case
         sta bptsave_t
-        mvi m, OPC_RST5                 ; mem[br dst] = rst5
+        mvi m, OPC_RST5                 ; mem[br dst:true] = rst5
         shld bptsave_t_ptr              ; bptsave_t_ptr = br dst
         ; insn length 3, save nobranch dst and insert bpt (insn following current br)
         xchg                            ; hl <- pc + 3
         mov a, m
+        ; -- a fix for "1000 call 1003"
+        ; -- check that dst:false is not the same as dst:true
+        cpi OPC_RST5                    ; the instruction is rst5? 
+        jnz _3bbr3                      ; no, save it as usual
+        mov a, b                        ; yes, use opcode saved in b        
+_3bbr3:        
+        ; ---
         sta bptsave_f
-        mvi m, OPC_RST5                 ; mem[br dst] = rst5
+        mvi m, OPC_RST5                 ; mem[br dst:false] = rst5
         shld bptsave_f_ptr
         ret
         ; br length 1: rst, ret cond, pchl --> singlestep/emulated
@@ -745,8 +753,19 @@ ed_ldar:
                  ; guarranteed to be random
         sta guest_psw+1
         ret
+        
 ed_neg:
-        jmp $
+        inx h
+        shld guest_pc
+        lda guest_psw+1
+        cma
+        inr a
+        
+        push psw        ; update guest a and psw
+        pop h
+        mov h, a
+        shld guest_psw
+        ret        
         
         ; find cp/m vector substitute (e.g. BF00 -> C000)
         ; forward call to cp/m and return back to caller code
@@ -1100,7 +1119,10 @@ getbit_a:
         mov a, m
         ret
         
-        ; register 00000rrr: 0=b, 1=c, 2=d, 3=e, 4=h, 5=l, 6=m, 7=a
+        ; get guest reg 00000rrr: 0=b, 1=c, 2=d, 3=e, 4=h, 5=l, 6=m, 7=a
+        ; opcode in m
+        ; result in a
+        ; clobbers: hl, de
 getreg_a:
         mvi a, 0b00000111
         ana m
@@ -1110,7 +1132,7 @@ getreg_a:
         lxi h, getreg_switch
         dad d
         pchl
-
+        
 getreg_switch:
 _grsw_0_b:      lda guest_bc+1 \ ret
 _grsw_1_c:      lda guest_bc   \ ret
@@ -1126,11 +1148,29 @@ _grsw_7_m_real:
         mov a, m
         ret
         
+        ; guest a/b/c/d/e/h/l/m <- a
+        ; reg in (hl) encoded as 00000rrr
+        ; clobbers: hl, de
 setreg_a:
         mov b, a
         mvi a, 0b00000111
         ana m
         ral \ ral       ; ofs = reg * 4
+        mov e, a
+        mvi d, 0
+        lxi h, setreg_switch
+        dad d
+        mov a, b
+        pchl
+
+        ; guest a/b/c/d/e/h/l/m <- a
+        ; reg in (hl) encoded as 00rrr000
+        ; clobbers: hl, de
+setreg_a_00rrr000:
+        mov b, a
+        mvi a, 0b00111000
+        ana m
+        rar             ; ofs = reg * 4
         mov e, a
         mvi d, 0
         lxi h, setreg_switch
@@ -1568,7 +1608,7 @@ ix_plus_e_hl:
         dad d
         ret
         
-        ; DD BE xx  CP (IX+r8) ###
+        ; DD BE xx  CP (IX+r8)
 emu_dd_cpixim8:
         inx h
         mov e, m
@@ -1598,10 +1638,35 @@ emu_dd_subixim8:
 emu_dd_addixim8:
         jmp $           ; todo
 
+
+        ; LD r,(IX+im8)
+        ; 01rrr110 r <- (ix+im8)
 emu_dd_ldrixim8:
-        jmp $
-emu_dd_ldixim8r
-        jmp $
+        push h
+          inx h                   ; hl <- &im8
+          mov e, m
+          inx h                   ; pc <- pc + 2
+          shld guest_pc
+          call ix_plus_e_hl       ; hl <- ix + (int8_t)e
+          mov a, m                ; a <- mem[ix+im8]
+        pop h                     ; hl <- &opcode
+        call setreg_a_00rrr000
+        ret
+
+        ; LD (IX+im8),r
+        ; 01110rrr (ix+im8) <- r
+emu_dd_ldixim8r:
+        push h
+          call getreg_a
+          mov b, a
+        pop h
+        inx h
+        mov e, m                ; e <- im8
+        inx h
+        shld guest_pc           ; pc <- pc + 2
+        call ix_plus_e_hl       ; hl <- ix + (int8_t)im8
+        mov m, b                ; mem[ix+im8] <- r
+        ret
 
 
         ; branch out to the unholy set of bit/set/res (ix + im8)
