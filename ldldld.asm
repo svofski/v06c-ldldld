@@ -20,13 +20,9 @@
 ; [x] rl,rr,rlc,rrc ignores carry in
 ; [ ] add ix, rp    set/reset Z flag like adc hl,rp
 ;
-; jnz $ etc -- these things never execute because bpt is inserted at jump
-;
-; implement:
-;   emu_dd_ldrixim8:
-;   emu_dd_ldixim8r
-;   ed_neg
-
+; [ ] rst 5 / rst 5 don't exist no more, but the code branches into handlers 
+;     move things around and remove crud
+; [ ] saved insn/addrs can be inlined with rst3 or rst4 code
 
 traptab_org     .equ $9000
 host_org        .equ traptab_org + $100
@@ -860,17 +856,16 @@ emu_dd:
         mov a, m
         cpi $e1 \ jz emu_dd_popix
         cpi $e5 \ jz emu_dd_pushix
+        cpi $09 \ jz emu_dd_addixbc
+        cpi $19 \ jz emu_dd_addixde
+        cpi $29 \ jz emu_dd_addixix
+        cpi $39 \ jz emu_dd_addixsp
         cpi $f9 \ jz emu_dd_ldspix
-        cpi $cb \ jz emu_ddcb
         cpi $21 \ jz emu_dd_ldixim16
         cpi $22 \ jz emu_dd_lda16ix
         cpi $23 \ jz emu_dd_incix
         cpi $2a \ jz emu_dd_ldixa16
         cpi $2b \ jz emu_dd_decix
-        cpi $09 \ jz emu_dd_addixbc
-        cpi $19 \ jz emu_dd_addixde
-        cpi $29 \ jz emu_dd_addixix
-        cpi $39 \ jz emu_dd_addixsp
         cpi $be \ jz emu_dd_cpixim8
         cpi $ae \ jz emu_dd_xorixim8
         cpi $9e \ jz emu_dd_sbcixim8
@@ -880,6 +875,7 @@ emu_dd:
         cpi $96 \ jz emu_dd_subixim8
         cpi $86 \ jz emu_dd_addixim8
         cpi $e3 \ jz emu_dd_exspix
+        cpi $cb \ jz emu_ddcb
         ani 0b11000111  ; 
         cpi 0b01000110  ; LD r,(IX+im8)
         jz emu_dd_ldrixim8
@@ -1173,44 +1169,32 @@ emu_jr_positive:
         shld guest_pc
         ret
 emu_jr_nz:
-        xchg                            ; de <- guest pc
-        lhld guest_psw
-        push h
-        pop psw                         ; psw <- guest psw
-        xchg                            ; hl <- guest pc
-        jnz emu_jr                      ; ?cond -> jr
+        lda guest_psw 
+        ani $40
+        jz emu_jr
         inx h                           ; else guest pc += 2
         inx h
         shld guest_pc
         ret
 emu_jr_nc:
-        xchg                            ; de <- guest pc
-        lhld guest_psw
-        push h
-        pop psw                         ; psw <- guest psw
-        xchg                            ; hl <- guest pc
-        jnc emu_jr                      ; ?cond -> jr
+        lda guest_psw
+        rar
+        jnc emu_jr
         inx h                           ; else guest pc += 2
         inx h
         shld guest_pc
         ret
 emu_jr_z:
-        xchg                            ; de <- guest pc
-        lhld guest_psw
-        push h
-        pop psw                         ; psw <- guest psw
-        xchg                            ; hl <- guest pc
-        jz emu_jr                       ; ?cond -> jr
+        lda guest_psw 
+        ani $40
+        jnz emu_jr
         inx h                           ; else guest pc += 2
         inx h
         shld guest_pc
         ret
 emu_jr_c:
-        xchg                            ; de <- guest pc
-        lhld guest_psw
-        push h
-        pop psw                         ; psw <- guest psw
-        xchg                            ; hl <- guest pc
+        lda guest_psw
+        rar
         jc emu_jr                       ; ?cond -> jr
         inx h                           ; else guest pc += 2
         inx h
