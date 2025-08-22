@@ -468,10 +468,6 @@ bptsave_f:      .db 0                   ; bpt branch if condition false, insn ad
 
 guest_ix:       .dw 0
 guest_iy:       .dw 0
-;guest_pc:       .dw 0
-;guest_sp:       .dw 0
-;guest_hl:       .dw 0
-;guest_psw:      .dw 0
 
         ; hl = guest pc
         ; if first insn = br3, insert 2 bpts --- todo: emulate forking jump?
@@ -482,7 +478,7 @@ scan_until_br:
         mov e, m
         ldax d
         ora a
-        jm scubr_fork
+        jm scubr_fork                   ;
         jz scubr_emulate
         add l
         mov l, a
@@ -518,34 +514,14 @@ scubr_emulate:
         mvi m, OPC_RST3
         ret
         
-        
-;         ; unconditional jump/call at the start of a run, set break at the far end
-; scubr_uncond:        
-;         inx h                           ; de <- branch dst
-;         mov e, m
-;         inx h
-;         mov d, m
-;         inx h
-;         xchg                            ; hl <- branch dst, de <- pc + 3
-;         mov a, m                        ; bptsave_t = mem[br dst]
-;         sta bptsave_t
-;         mvi m, OPC_RST4                 ; mem[br dst] = rst5
-;         shld bptsave_t_ptr              ; bptsave_t_ptr = br dst
-;         ret
-        
         ; branch/fork at the start of a run, singlestep
 scubr_fork:
-        cpi $81                         ; 1-byte insn: ret/ret cond/rst --- pchl must be emulated
-        jz scubr_1bbr
+        ;cpi $81                         ; 1-byte insn: ret/ret cond/rst --- pchl must be emulated
+        ;jz scubr_1bbr
+        jpe scubr_1bbr                  ; $81: P=1/PE  $83: P=0/PO
+        
         ; insn length 3, save branch dst and insert bpt
 scubr_3bbr:
-        ; smart? then it's slower!
-        ;mov a, m
-        ;cpi $c3                         ; jmp -- no fork
-        ;jz scubr_uncond
-        ;cpi $cd                         ; call -- no fork
-        ;jz scubr_uncond
-        
         inx h                           ; de <- branch dst
         mov e, m
         inx h
@@ -563,9 +539,8 @@ scubr_3bbr:
         ; -- a fix for "1000 call 1003"
         ; -- check that dst:false is not the same as dst:true
         cpi OPC_RST5                    ; the instruction is rst5? 
-        jnz _3bbr3                      ; no, save it as usual
+        jnz $+4                         ; no, save it as usual
         mov a, b                        ; yes, use opcode saved in b        
-_3bbr3:        
         ; ---
         sta bptsave_f
         mvi m, OPC_RST5                 ; mem[br dst:false] = rst5
