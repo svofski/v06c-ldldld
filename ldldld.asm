@@ -387,8 +387,7 @@ emu_br1:
         cpi OPC_PCHL
         jz ss_pchl
         jmp $
-        ret
-
+        
         ; normal: user pc <- mem[guest_sp], guest_sp += 2
 ss_ret:
         lhld guest_sp
@@ -461,6 +460,195 @@ ss_pchl:
         shld guest_pc
         ret
         
+        ; singlestep-emulate jmp, jcond, call, ccond
+emu_br3: 
+        mov a, m
+        cpi $cd \ jz ss_call       ;	call 00000h	call	X0000
+        cpi $c2 \ jz ss_jnz       ;	jp nz,00000h	jnz	X0000
+        cpi $c3 \ jz ss_jmp       ;	jp 00000h       jmp	X0000
+        cpi $c4 \ jz ss_cnz       ;	call nz,00000h	cnz	X0000
+        cpi $ca \ jz ss_jz       ;	jp z,00000h	jz	X0000
+        cpi $cc \ jz ss_cz       ;	call z,00000h   cz	X0000
+        cpi $d2 \ jz ss_jnc       ;	jp nc,00000h	jnc	X0000
+        cpi $d4 \ jz ss_cnc       ;	call nc,00000h	cnc	X0000
+        cpi $da \ jz ss_jc       ;	jp c,00000h     jc	X0000
+        cpi $dc \ jz ss_cc       ;	call c,00000h   cc	X0000
+        cpi $e2 \ jz ss_jpo       ;	jp po,00000     jpo	X0000
+        cpi $e4 \ jz ss_cpo       ;	call po,00000h  cpo	X0000
+        cpi $ea \ jz ss_jpe       ;	jp pe,00000h	jpe	X0000
+        cpi $ec \ jz ss_cpe       ;	call pe,00000h	cpe	X0000
+        cpi $f2 \ jz ss_jp       ;	jp p,00000	jp	X0000
+        cpi $f4 \ jz ss_cp       ;	call p,00000h	cp	X0000
+        cpi $fa \ jz ss_jm       ;	jp m,00000      jm	X0000
+        cpi $fc \ jz ss_cm       ;	call m,00000h   cm	X0000
+        jmp $
+
+ss_3nop:
+        ;lhld guest_pc
+        inx h \ inx h \ inx h
+        shld guest_pc
+        ret
+
+ss_jmp:
+        ;lhld guest_pc
+        inx h
+        mov e, m
+        inx h
+        mov d, m
+        xchg
+        shld guest_pc
+        ret
+ss_call:
+        ;lhld guest_pc
+        inx h
+        mov e, m
+        inx h
+        mov d, m
+        inx h
+        xchg
+        push d
+          shld guest_pc
+          lhld guest_sp
+        pop d
+        ; push return addr
+        dcx h 
+        mov m, d
+        dcx h
+        mov m, e
+        shld guest_sp
+        ret
+ss_jnz:
+        xchg
+        lhld guest_psw
+        push h
+        pop psw
+        xchg
+        jnz ss_jmp
+        jmp ss_3nop
+ss_cnz:
+        xchg
+        lhld guest_psw
+        push h
+        pop psw
+        xchg
+        jnz ss_call
+        jmp ss_3nop
+ss_jz:
+        xchg
+        lhld guest_psw
+        push h
+        pop psw
+        xchg
+        jz ss_jmp
+        jmp ss_3nop
+ss_cz:
+        xchg
+        lhld guest_psw
+        push h
+        pop psw
+        xchg
+        jz ss_call
+        jmp ss_3nop
+ss_jnc: 
+        xchg
+        lhld guest_psw
+        push h
+        pop psw
+        xchg
+        jnc ss_jmp
+        jmp ss_3nop
+ss_cnc:
+        xchg
+        lhld guest_psw
+        push h
+        pop psw
+        xchg
+        jnc ss_call
+        jmp ss_3nop
+
+ss_jc:
+        xchg
+        lhld guest_psw
+        push h
+        pop psw
+        xchg
+        jc ss_jmp
+        jmp ss_3nop
+ss_cc:
+        xchg
+        lhld guest_psw
+        push h
+        pop psw
+        xchg
+        jc ss_call
+        jmp ss_3nop
+ss_jpo:
+        xchg
+        lhld guest_psw
+        push h
+        pop psw
+        xchg
+        jpo ss_jmp
+        jmp ss_3nop
+ss_cpo: 
+        xchg
+        lhld guest_psw
+        push h
+        pop psw
+        xchg
+        jpo ss_call
+        jmp ss_3nop
+ss_jpe: 
+        xchg
+        lhld guest_psw
+        push h
+        pop psw
+        xchg
+        jpe ss_jmp
+        jmp ss_3nop
+ss_cpe: 
+        xchg
+        lhld guest_psw
+        push h
+        pop psw
+        xchg
+        jpe ss_call
+        jmp ss_3nop
+ss_jp:  
+        xchg
+        lhld guest_psw
+        push h
+        pop psw
+        xchg
+        jp ss_jmp
+        jmp ss_3nop
+ss_cp:
+        xchg
+        lhld guest_psw
+        push h
+        pop psw
+        xchg
+        jp ss_call
+        jmp ss_3nop
+ss_jm:
+        xchg
+        lhld guest_psw
+        push h
+        pop psw
+        xchg
+        jm ss_jmp
+        jmp ss_3nop
+ss_cm:
+        xchg
+        lhld guest_psw
+        push h
+        pop psw
+        xchg
+        jm ss_call
+        jmp ss_3nop
+        
+        
+        
 bptsave_t_ptr:  .dw 0                   ; bpt true insn addr
 bptsave_t:      .db 0                   ; bpt branch if condition true, insn addr mem[sp]
 bptsave_f_ptr:  .dw 0                   ; bpt false insn addr
@@ -515,76 +703,77 @@ scubr_emulate:
         mvi m, OPC_RST3
         ret
         
-        ; branch/fork at the start of a run, singlestep
-scubr_fork:
-        ;cpi $81                         ; 1-byte insn: ret/ret cond/rst --- pchl must be emulated
-        ;jz scubr_1bbr
-        jpe scubr_1bbr                  ; $81: P=1/PE  $83: P=0/PO
+;         ; branch/fork at the start of a run, singlestep
+; scubr_fork:
+;         ;cpi $81                         ; 1-byte insn: ret/ret cond/rst --- pchl must be emulated
+;         ;jz scubr_1bbr
+;         jpe scubr_1bbr                  ; $81: P=1/PE  $83: P=0/PO
         
-        ; insn length 3, save branch dst and insert bpt
-scubr_3bbr:
-        inx h                           ; de <- branch dst
-        mov e, m
-        inx h
-        mov d, m
-        inx h
-        xchg                            ; hl <- branch dst, de <- pc + 3
-        mov a, m                        ; bptsave_t = mem[br dst]
-        mov b, a                        ; also save in b just in case
-        sta bptsave_t
-        mvi m, OPC_RST5                 ; mem[br dst:true] = rst5
-        shld bptsave_t_ptr              ; bptsave_t_ptr = br dst
-        ; insn length 3, save nobranch dst and insert bpt (insn following current br)
-        xchg                            ; hl <- pc + 3
-        mov a, m
-        ; -- a fix for "1000 call 1003"
-        ; -- check that dst:false is not the same as dst:true
-        cpi OPC_RST5                    ; the instruction is rst5? 
-        jnz $+4                         ; no, save it as usual
-        mov a, b                        ; yes, use opcode saved in b        
-        ; ---
-        sta bptsave_f
-        mvi m, OPC_RST5                 ; mem[br dst:false] = rst5
-        shld bptsave_f_ptr
-        ret
-        ; br length 1: rst, ret cond, pchl --> singlestep/emulated
-        ; insert rst6 at insn
-scubr_1bbr:        
-        mov a, m                        ; opcode
-        sta bptsave_t
-        shld bptsave_t_ptr
-        sta bptsave_f
-        shld bptsave_f_ptr
-        mvi m, OPC_RST6
-        ret
+;         ; insn length 3, save branch dst and insert bpt
+; scubr_3bbr:
+;         inx h                           ; de <- branch dst
+;         mov e, m
+;         inx h
+;         mov d, m
+;         inx h
+;         xchg                            ; hl <- branch dst, de <- pc + 3
+;         mov a, m                        ; bptsave_t = mem[br dst]
+;         mov b, a                        ; also save in b just in case
+;         sta bptsave_t
+;         mvi m, OPC_RST5                 ; mem[br dst:true] = rst5
+;         shld bptsave_t_ptr              ; bptsave_t_ptr = br dst
+;         ; insn length 3, save nobranch dst and insert bpt (insn following current br)
+;         xchg                            ; hl <- pc + 3
+;         mov a, m
+;         ; -- a fix for "1000 call 1003"
+;         ; -- check that dst:false is not the same as dst:true
+;         cpi OPC_RST5                    ; the instruction is rst5? 
+;         jnz $+4                         ; no, save it as usual
+;         mov a, b                        ; yes, use opcode saved in b        
+;         ; ---
+;         sta bptsave_f
+;         mvi m, OPC_RST5                 ; mem[br dst:false] = rst5
+;         shld bptsave_f_ptr
+;         ret
+;         ; br length 1: rst, ret cond, pchl --> singlestep/emulated
+;         ; insert rst6 at insn
+; scubr_1bbr:        
+;         mov a, m                        ; opcode
+;         sta bptsave_t
+;         shld bptsave_t_ptr
+;         sta bptsave_f
+;         shld bptsave_f_ptr
+;         mvi m, OPC_RST6
+;         ret
         
         ; first instruction in the run is a branch: emulate in-place
         ; instead of scubr_fork
 scubr_br_btw:
-        ;jpo brip_jmplike
-        jpo scubr_3bbr          ; for now 3-jmp set rst5
+        jpo brip_jmplike
+        ;jpo scubr_3bbr          ; for now 3-jmp set rst5
         
 brip_retlike:
         call emu_br1            ; perform branch
         lhld guest_pc           ; hl <- guest_pc
         jmp scan_until_br       ; scan again
-;brip_jmplike:
+brip_jmplike:
+        call emu_br3
+        lhld guest_pc
+        jmp scan_until_br
 ;        jmp $
         
 
         ; hl = guest pc
 emu_ld:
         mov a, m
-        cpi $10
-        jz emu_djnz
-        cpi $20
-        jz emu_jr_nz
-        cpi $30
-        jz emu_jr_nc
-        cpi $18
-        jz emu_jr
         cpi $28
         jz emu_jr_z
+        cpi $18
+        jz emu_jr
+        cpi $30
+        jz emu_jr_nc
+        cpi $20
+        jz emu_jr_nz
         cpi $38
         jz emu_jr_c
         cpi $ed                         ; ED xx..
@@ -595,6 +784,8 @@ emu_ld:
         jz emu_dd
         cpi $fd
         jz emu_fd
+        cpi $10
+        jz emu_djnz
         jmp $
        
         ; CB prefix: bit, res, set...
