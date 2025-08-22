@@ -249,7 +249,6 @@ run_guest:
         
         ; emulated instructions
 rst3_hand:
-        di
         shld guest_hl                   ; save guest hl
         pop h
         push psw                        ; save guest psw
@@ -262,11 +261,13 @@ rst3_hand:
         mov m, a                        
 
         lxi h, 0                        ; save guest sp
+        di
         dad sp
         shld guest_sp
         lxi sp, bpt_stack               ; set host sp
-        push b
-        push d
+        push b                          ; guest regs bc/de must be at fixed positions on stack
+        push d                          ; so this is in the protected block
+        ei
         ;
         lhld guest_pc
         call emu_ld                     ; emulate ld ld, (ld)
@@ -274,7 +275,6 @@ rst3_hand:
 
 rst4_hand:
         ; bpt after single-ended branch
-        di
         shld guest_hl                   ; save guest hl
         pop h
         push psw                        ; save guest psw
@@ -287,13 +287,13 @@ rst4_hand:
         mov m, a 
 
         lxi h, 0                        ; save guest sp
+        di
         dad sp
         shld guest_sp
         jmp rst5_scan        
         
         ; bpt at either branch end, (sp) = orig insn addr
 rst5_hand:
-        di
         shld guest_hl                   ; save guest hl
         pop h                           ; h <- guest pc
         push psw                        ; guest psw on stack
@@ -309,12 +309,14 @@ rst5_hand:
         mov m, a
 
         lxi h, 0                        ; save guest sp
+        di
         dad sp
         shld guest_sp
 rst5_scan:        
         lxi sp, bpt_stack               ; set host sp
         push b                          ; save guest bc
         push d                          ; save guest de
+        ei
 rst5_scan_ext:
         lhld guest_pc
         call scan_until_br
@@ -325,6 +327,7 @@ guest_psw .equ $+1
         lxi h, 0
         push h
         pop psw
+        di
 guest_sp .equ $+1
         lxi sp, 0
 guest_hl .equ $+1
@@ -335,7 +338,6 @@ guest_pc .equ $+1
         
         ; bpt at ret/ret cond/rst/pchl
 rst6_hand:
-        di
         shld guest_hl                   ; save guest hl
         pop h
         push psw                        ; save guest psw
@@ -348,11 +350,13 @@ rst6_hand:
         mov m, a                        
 
         lxi h, 0                        ; save guest sp
+        di
         dad sp
         shld guest_sp
         lxi sp, bpt_stack               ; set host sp
         push b
         push d
+        ei
         ;
         lhld guest_pc
         call emu_br1                    ; emulate ret
