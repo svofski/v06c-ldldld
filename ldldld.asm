@@ -610,17 +610,14 @@ guest_ix:       .dw 0
 guest_iy:       .dw 0
 
         ; hl = guest pc
-        ; if first insn = br3, insert 2 bpts --- todo: emulate forking jump?
-        ; if br3 follows, insert bpt at br3
 scan_until_br:
         mvi d, traptab >> 8
-        ; first insn
+        ; first insn can be a cond branch, which is emulated immediately
         mov e, m
         ldax d
         ora a
-        ;jm scubr_fork                   ;
-        jm scubr_br_btw
         jz scubr_emulate
+        jm scubr_br_btw
         add l
         mov l, a
         mvi a, 0
@@ -631,8 +628,8 @@ scubr_1:
         mov e, m                        ; de = &traptab[mem[pc]]
         ldax d                          ; a = traptab[mem[pc]]
         ora a
-        jm scubr_branch                 ; found a branch
         jz scubr_emulate                ; found emulated insn
+        jm scubr_branch                 ; found a branch
         add l                           ; normal insn, advance ptr
         mov l, a
         mvi a, 0
