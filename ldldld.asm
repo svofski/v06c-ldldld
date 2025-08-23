@@ -244,44 +244,21 @@ run_guest:
         
 ;rst7_hand:
 ;        ret
-        
-        ; emulated instructions
-rst3_hand:
-        shld guest_hl                   ; save guest hl
-        pop h                           ; h <- guest pc
-        push psw                        ; guest psw on stack
-        dcx h                           ; h <- guest pc - 1
-        shld guest_pc                   ; return addr (guest pc - 1)
-        lhld bptsave_t_ptr              ; restore bpt t insn
-        lda bptsave_t
-        mov m, a 
 
-        lxi h, 2                        ; save guest sp
-        di
-        dad sp
-        shld guest_sp
-        pop h                            ; hl <- guest psw
-        
-        lxi sp, bpt_stack               ; set host sp
-        push h                          ; save guest psw
-        push b                          ; guest regs must be at fixed positions on stack
-        push d                          ; so this is in the protected block
-        ei
-        ;
-        lhld guest_pc
-        call emu_ld                     ; emulate ld ld, (ld)
-        jmp rst5_scan_ext               ; and scan from the new pc onward
-
+        ; bpt in place of branch (8080)
 rst4_hand:
-        ; bpt after single-ended branch
         shld guest_hl                   ; save guest hl
         pop h                           ; h <- guest pc
         push psw                        ; guest psw on stack
         dcx h                           ; h <- guest pc - 1
         shld guest_pc                   ; return addr (guest pc - 1)
-        lhld bptsave_t_ptr              ; restore bpt t insn
-        lda bptsave_t
-        mov m, a 
+        ;lhld bptsave_t_ptr              ; restore bpt t insn
+        ;lda bptsave_t
+        ;mov m, a 
+bptsave_t4 .equ $+1
+        mvi a, 0
+bptsave_t4_ptr .equ $+1
+        sta 0
 
         lxi h, 2                        ; save guest sp
         di
@@ -295,6 +272,34 @@ rst5_scan:
         push b                          ; save guest bc
         push d                          ; save guest de
         ei
+        jmp rst5_scan_ext               ; and scan from the new pc onward
+        
+        ; emulated instructions
+rst3_hand:
+        shld guest_hl                   ; save guest hl
+        pop h                           ; h <- guest pc
+        push psw                        ; guest psw on stack
+        dcx h                           ; h <- guest pc - 1
+        shld guest_pc                   ; return addr (guest pc - 1)
+bptsave_t equ $+1        
+        mvi a, 0
+bptsave_t_ptr equ $+1        
+        sta 0
+
+        lxi h, 2                        ; save guest sp
+        di
+        dad sp
+        shld guest_sp
+        pop h                           ; hl <- guest psw
+        
+        lxi sp, bpt_stack               ; set host sp
+        push h                          ; save guest psw
+        push b                          ; guest regs must be at fixed positions on stack
+        push d                          ; so this is in the protected block
+        ei
+        ;
+        lhld guest_pc
+        call emu_ld                     ; emulate ld ld, (ld)
 rst5_scan_ext:
         lhld guest_pc
         call scan_until_br
@@ -598,8 +603,8 @@ ss_cm:
         
         
         
-bptsave_t_ptr:  .dw 0                   ; bpt true insn addr
-bptsave_t:      .db 0                   ; bpt branch if condition true, insn addr mem[sp]
+;bptsave_t_ptr:  .dw 0                   ; bpt true insn addr
+;bptsave_t:      .db 0                   ; bpt branch if condition true, insn addr mem[sp]
 
 guest_ix:       .dw 0
 guest_iy:       .dw 0
@@ -642,8 +647,8 @@ scubr_branch:
         mov a, m                        ; opcode
         cpi OPC_CALL \ jz scubr_br_meanwhile
         cpi OPC_JMP \ jz scubr_br_meanwhile
-        sta bptsave_t
-        shld bptsave_t_ptr
+        sta bptsave_t4
+        shld bptsave_t4_ptr
         mvi m, OPC_RST4
         ret
 
