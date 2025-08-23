@@ -29,8 +29,9 @@ host_org        .equ traptab_org + $100
 bpt_stack       .equ traptab_org 
 guest_stack     .equ traptab_org - 64
 
-guest_bc        .equ bpt_stack - 2
-guest_de        .equ bpt_stack - 4
+guest_psw       .equ bpt_stack - 2
+guest_bc        .equ bpt_stack - 4
+guest_de        .equ bpt_stack - 6
 
 OPC_RST0        .equ $c7        
 OPC_RST1        .equ $cf
@@ -227,10 +228,10 @@ install_handlers:
         shld 3*8+1
         lxi h, rst4_hand
         shld 4*8+1
-        lxi h, rst5_hand
-        shld 5*8+1
-        lxi h, rst6_hand
-        shld 6*8+1
+        ;lxi h, rst5_hand
+        ;shld 5*8+1
+        ;lxi h, rst6_hand
+        ;shld 6*8+1
         ;lxi h, rst7_hand
         ;shld 7*8+1
 run_guest:
@@ -247,22 +248,23 @@ run_guest:
         ; emulated instructions
 rst3_hand:
         shld guest_hl                   ; save guest hl
-        pop h
-        push psw                        ; save guest psw
-        dcx h
+        pop h                           ; h <- guest pc
+        push psw                        ; guest psw on stack
+        dcx h                           ; h <- guest pc - 1
         shld guest_pc                   ; return addr (guest pc - 1)
-        pop h
-        shld guest_psw
-        lhld bptsave_t_ptr              ; restore bpt insn
+        lhld bptsave_t_ptr              ; restore bpt t insn
         lda bptsave_t
-        mov m, a                        
+        mov m, a 
 
-        lxi h, 0                        ; save guest sp
+        lxi h, 2                        ; save guest sp
         di
         dad sp
         shld guest_sp
+        pop h                            ; hl <- guest psw
+        
         lxi sp, bpt_stack               ; set host sp
-        push b                          ; guest regs bc/de must be at fixed positions on stack
+        push h                          ; save guest psw
+        push b                          ; guest regs must be at fixed positions on stack
         push d                          ; so this is in the protected block
         ei
         ;
@@ -273,44 +275,23 @@ rst3_hand:
 rst4_hand:
         ; bpt after single-ended branch
         shld guest_hl                   ; save guest hl
-        pop h
-        push psw                        ; save guest psw
-        dcx h
-        shld guest_pc                   ; return addr (guest pc - 1)
-        pop h
-        shld guest_psw
-        lhld bptsave_t_ptr              ; restore bpt insn
-        lda bptsave_t
-        mov m, a 
-
-        lxi h, 0                        ; save guest sp
-        di
-        dad sp
-        shld guest_sp
-        jmp rst5_scan        
-        
-        ; bpt at either branch end, (sp) = orig insn addr
-rst5_hand:
-        shld guest_hl                   ; save guest hl
         pop h                           ; h <- guest pc
         push psw                        ; guest psw on stack
         dcx h                           ; h <- guest pc - 1
         shld guest_pc                   ; return addr (guest pc - 1)
-        pop h                           ; save guest psw
-        shld guest_psw
         lhld bptsave_t_ptr              ; restore bpt t insn
         lda bptsave_t
         mov m, a 
-        lhld bptsave_f_ptr              ; restore bpt f insn
-        lda bptsave_f
-        mov m, a
 
-        lxi h, 0                        ; save guest sp
+        lxi h, 2                        ; save guest sp
         di
         dad sp
         shld guest_sp
+        pop h                           ; hl <- guest psw
+
 rst5_scan:        
         lxi sp, bpt_stack               ; set host sp
+        push h                          ; save guest psw
         push b                          ; save guest bc
         push d                          ; save guest de
         ei
@@ -320,9 +301,6 @@ rst5_scan_ext:
         ; return control to guest
         pop d
         pop b
-guest_psw .equ $+1
-        lxi h, 0
-        push h
         pop psw
         di
 guest_sp .equ $+1
@@ -333,32 +311,6 @@ guest_hl .equ $+1
 guest_pc .equ $+1
         jmp 0
         
-        ; bpt at ret/ret cond/rst/pchl
-rst6_hand:
-        shld guest_hl                   ; save guest hl
-        pop h
-        push psw                        ; save guest psw
-        dcx h
-        shld guest_pc                   ; return addr (guest pc - 1)
-        pop h
-        shld guest_psw
-        lhld bptsave_t_ptr              ; restore bpt insn
-        lda bptsave_t
-        mov m, a                        
-
-        lxi h, 0                        ; save guest sp
-        di
-        dad sp
-        shld guest_sp
-        lxi sp, bpt_stack               ; set host sp
-        push b
-        push d
-        ei
-        ;
-        lhld guest_pc
-        call emu_br1                    ; emulate ret
-        jmp rst5_scan_ext               ; and scan from the new pc onward
-
         ; singlestep a br1 insn in
         ; mem[hl] = opc
 emu_br1:
@@ -648,8 +600,6 @@ ss_cm:
         
 bptsave_t_ptr:  .dw 0                   ; bpt true insn addr
 bptsave_t:      .db 0                   ; bpt branch if condition true, insn addr mem[sp]
-bptsave_f_ptr:  .dw 0                   ; bpt false insn addr
-bptsave_f:      .db 0                   ; bpt branch if condition false, insn addr?
 
 guest_ix:       .dw 0
 guest_iy:       .dw 0
@@ -1116,6 +1066,45 @@ emu_djnz:
         inx h
         shld guest_pc
         ret
+        
+; rsthand_jr:
+;         shld guest_hl                   ; save guest hl
+;         pop h
+;         push psw                        ; save guest psw
+;         dcx h
+;         shld guest_pc                   ; return addr (guest pc - 1)
+;         pop h
+;         shld guest_psw
+;         lhld bptsave_t_ptr              ; restore bpt insn
+;         lda bptsave_t
+;         mov m, a                        
+;         ; inline jr        
+; rst_jr:
+;         inx h
+;         xra a
+;         ora m
+;         inx h
+;         jp rst_jr_positive
+; rst_jr_negative:        
+;         add l
+;         mov l, a
+;         mov a, h
+;         aci -1
+;         mov h, a
+;         shld guest_pc
+;         jmp rst5_ret2
+; rst_jr_positive:
+;         add l
+;         mov l, a
+;         mov a, h
+;         aci 0
+;         mov h, a
+;         shld guest_pc
+;         jmp rst5_ret2
+
+
+
+        
 emu_jr:
         inx h
         xra a
