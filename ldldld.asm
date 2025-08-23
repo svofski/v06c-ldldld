@@ -1072,44 +1072,6 @@ emu_djnz:
         shld guest_pc
         ret
         
-; rsthand_jr:
-;         shld guest_hl                   ; save guest hl
-;         pop h
-;         push psw                        ; save guest psw
-;         dcx h
-;         shld guest_pc                   ; return addr (guest pc - 1)
-;         pop h
-;         shld guest_psw
-;         lhld bptsave_t_ptr              ; restore bpt insn
-;         lda bptsave_t
-;         mov m, a                        
-;         ; inline jr        
-; rst_jr:
-;         inx h
-;         xra a
-;         ora m
-;         inx h
-;         jp rst_jr_positive
-; rst_jr_negative:        
-;         add l
-;         mov l, a
-;         mov a, h
-;         aci -1
-;         mov h, a
-;         shld guest_pc
-;         jmp rst5_ret2
-; rst_jr_positive:
-;         add l
-;         mov l, a
-;         mov a, h
-;         aci 0
-;         mov h, a
-;         shld guest_pc
-;         jmp rst5_ret2
-
-
-
-        
 emu_jr:
         inx h
         xra a
@@ -1117,20 +1079,34 @@ emu_jr:
         inx h
         jp emu_jr_positive
 emu_jr_negative:        
+        ; add l
+        ; mov l, a
+        ; mvi a, -1
+        ; adc h
+        ; mov h, a
+        ; shld guest_pc
         add l
-        mov l, a
-        mov a, h
-        aci -1
-        mov h, a
-        shld guest_pc
+        sta guest_pc
+        mvi a, -1
+        adc h
+        sta guest_pc+1
         ret
 emu_jr_positive:
-        add l
-        mov l, a
-        mov a, h
-        aci 0
-        mov h, a
-        shld guest_pc
+        ; add l
+        ; mov l, a
+        ; mvi a, 0
+        ; adc h
+        ; ;mov a, h
+        ; ;aci 0
+        ; mov h, a
+        ; shld guest_pc  ; 4+8+8+4+8+20
+        
+        add l           ; 4+16+8+4+16
+        sta guest_pc
+        mvi a, 0
+        adc h
+        sta guest_pc+1
+        
         ret
 emu_jr_nz:
         lda guest_psw 
@@ -1173,8 +1149,6 @@ ed_ldi:
         lhld guest_de
         xchg
         lhld guest_hl
-        ;ldax d
-        ;mov m, a
         mov a, m
         stax d
         inx d
@@ -1199,8 +1173,6 @@ ed_ldir:
         lhld guest_hl
         
 _ldir_loop:        
-        ;ldax d \ inx d
-        ;mov m, a \ inx h
         mov a, m \ inx h
         stax d \ inx d
         dcx b
@@ -1329,7 +1301,10 @@ _srsw_7_m_real:
         ; H is set ?
         ; N is reset
 emu_bit:
-        push h
+        inx h
+        shld guest_pc
+        dcx h
+
         push h
         call getreg_a
         pop h
@@ -1342,22 +1317,18 @@ _ebt_clrz:
         ani ~0x40       ; clear Z
         ori 0x10        ; set H
         sta guest_psw
-        pop h
-        inx h
-        shld guest_pc
         ret
 _ebt_setz:
         lda guest_psw
         ori 0x40|0x10   ; set Z+H
         sta guest_psw
-        pop h
-        inx h
-        shld guest_pc
         ret
         
         ; 10bbbrrr 
 emu_res:
-        push h
+        inx h
+        shld guest_pc
+        dcx h
         push h
         push h
         call getreg_a
@@ -1368,14 +1339,13 @@ emu_res:
         ana b
         pop h
         call setreg_a
-        pop h
-        inx h
-        shld guest_pc
         ret
         
         ; 11bbbrrr 
 emu_set:
-        push h
+        inx h
+        shld guest_pc
+        dcx h
         push h
         push h
         call getreg_a
@@ -1385,12 +1355,12 @@ emu_set:
         ora b
         pop h
         call setreg_a
-        pop h
+        ret
+        
+emu_rlc_r:
         inx h
         shld guest_pc
-        ret
-emu_rlc_r:
-        push h
+        dcx h
         push h
         call getreg_a
         mov b, a
@@ -1411,12 +1381,11 @@ emu_rlc_r:
         
         mov a, b                ; result
         call setreg_a
-        pop h
-        inx h
-        shld guest_pc
         ret
 emu_rrc_r:
-        push h
+        inx h
+        shld guest_pc
+        dcx h
         push h
         call getreg_a
 
@@ -1438,12 +1407,11 @@ emu_rrc_r:
         
         mov a, b                ; result
         call setreg_a
-        pop h
-        inx h
-        shld guest_pc
         ret
 emu_rl_r:
-        push h
+        inx h
+        shld guest_pc
+        dcx h
         push h
         call getreg_a
         mov b, a
@@ -1463,12 +1431,11 @@ emu_rl_r:
         
         mov a, b                ; result
         call setreg_a
-        pop h
-        inx h
-        shld guest_pc
         ret
 emu_rr_r:
-        push h
+        inx h
+        shld guest_pc
+        dcx h
         push h
         call getreg_a
         mov b, a
@@ -1488,12 +1455,11 @@ emu_rr_r:
         
         mov a, b                ; result
         call setreg_a
-        pop h
-        inx h
-        shld guest_pc
         ret
 emu_sla_r:
-        push h
+        inx h
+        shld guest_pc
+        dcx h
         push h
         call getreg_a
         ora a
@@ -1510,12 +1476,11 @@ emu_sla_r:
         
         mov a, b                ; result
         call setreg_a
-        pop h
-        inx h
-        shld guest_pc
         ret
 emu_sra_r:
-        push h
+        inx h
+        shld guest_pc
+        dcx h
         push h
         call getreg_a
         
@@ -1536,14 +1501,13 @@ emu_sra_r:
         
         mov a, b                ; result
         call setreg_a
-        pop h
-        inx h
-        shld guest_pc
         ret
 emu_sll_r:
         jmp $                   ; undocumented
 emu_srl_r:
-        push h
+        inx h
+        shld guest_pc
+        dcx h
         push h
         call getreg_a
         
@@ -1562,9 +1526,6 @@ emu_srl_r:
         
         mov a, b                ; result
         call setreg_a
-        pop h
-        inx h
-        shld guest_pc
         ret
         
         
