@@ -53,6 +53,7 @@ OPC_RM          .equ $f8 	        ; ret m
 OPC_PCHL        .equ $e9
 
 OPC_JMP         .equ $c3
+OPC_CALL        .equ $cd
 
 FLAGBIT_C       .equ $01
 
@@ -684,9 +685,13 @@ scubr_1:
         mov h, a                        ; next pc
         jmp scubr_1
 
-        ; regular branch found at the end of a run
+        ; regular branch
+        ; conditional branch: end of a run, breakpoint
+        ; unconditional branch: follow and continue scan
 scubr_branch:
         mov a, m                        ; opcode
+        cpi OPC_CALL \ jz scubr_br_meanwhile
+        cpi OPC_JMP \ jz scubr_br_meanwhile
         sta bptsave_t
         shld bptsave_t_ptr
         mvi m, OPC_RST4
@@ -699,55 +704,10 @@ scubr_emulate:
         mvi m, OPC_RST3
         ret
         
-;         ; branch/fork at the start of a run, singlestep
-; scubr_fork:
-;         ;cpi $81                         ; 1-byte insn: ret/ret cond/rst --- pchl must be emulated
-;         ;jz scubr_1bbr
-;         jpe scubr_1bbr                  ; $81: P=1/PE  $83: P=0/PO
-        
-;         ; insn length 3, save branch dst and insert bpt
-; scubr_3bbr:
-;         inx h                           ; de <- branch dst
-;         mov e, m
-;         inx h
-;         mov d, m
-;         inx h
-;         xchg                            ; hl <- branch dst, de <- pc + 3
-;         mov a, m                        ; bptsave_t = mem[br dst]
-;         mov b, a                        ; also save in b just in case
-;         sta bptsave_t
-;         mvi m, OPC_RST5                 ; mem[br dst:true] = rst5
-;         shld bptsave_t_ptr              ; bptsave_t_ptr = br dst
-;         ; insn length 3, save nobranch dst and insert bpt (insn following current br)
-;         xchg                            ; hl <- pc + 3
-;         mov a, m
-;         ; -- a fix for "1000 call 1003"
-;         ; -- check that dst:false is not the same as dst:true
-;         cpi OPC_RST5                    ; the instruction is rst5? 
-;         jnz $+4                         ; no, save it as usual
-;         mov a, b                        ; yes, use opcode saved in b        
-;         ; ---
-;         sta bptsave_f
-;         mvi m, OPC_RST5                 ; mem[br dst:false] = rst5
-;         shld bptsave_f_ptr
-;         ret
-;         ; br length 1: rst, ret cond, pchl --> singlestep/emulated
-;         ; insert rst6 at insn
-; scubr_1bbr:        
-;         mov a, m                        ; opcode
-;         sta bptsave_t
-;         shld bptsave_t_ptr
-;         sta bptsave_f
-;         shld bptsave_f_ptr
-;         mvi m, OPC_RST6
-;         ret
-        
-        ; first instruction in the run is a branch: emulate in-place
-        ; instead of scubr_fork
+        ; first instruction in the run is a branch: 
+        ; emulate and restart scan
 scubr_br_btw:
         jpo brip_jmplike
-        ;jpo scubr_3bbr          ; for now 3-jmp set rst5
-        
 brip_retlike:
         call emu_br1            ; perform branch
         lhld guest_pc           ; hl <- guest_pc
@@ -756,8 +716,18 @@ brip_jmplike:
         call emu_br3
         lhld guest_pc
         jmp scan_until_br
-;        jmp $
-        
+
+        ; unconditional! jump in the middle of a run
+        ; follow-through and continue scan
+scubr_br_meanwhile:
+        inx h
+        mov e, m
+        inx h
+        mov d, m
+        xchg
+        mvi d, traptab >> 8
+        jmp scubr_1
+
 
         ; hl = guest pc
 emu_ld:
