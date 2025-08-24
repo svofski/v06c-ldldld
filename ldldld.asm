@@ -16,8 +16,8 @@
 ;
 ; FIXME
 ; 
-; [ ] srl, rr, rl   set/reset Z flag
-; [x] rl,rr,rlc,rrc ignores carry in
+; [x] srl, rr, rl   set/reset Z flag
+; [x] rl,rr         ignores carry in
 ; [ ] add ix, rp    set/reset Z flag like adc hl,rp
 
 traptab_org     .equ $9000
@@ -52,7 +52,9 @@ OPC_PCHL        .equ $e9
 OPC_JMP         .equ $c3
 OPC_CALL        .equ $cd
 
-FLAGBIT_C       .equ $01
+FLAGBIT_C       .equ $01                ; carry
+FLAGBIT_Z       .equ $40                ; zero
+FLAGBIT_S       .equ $80                ; negative
 
 fcb1            .equ $5c                ; default fcb
         ; BDOS functions
@@ -217,19 +219,10 @@ install_handlers:
         mvi a, OPC_JMP
         sta 3*8
         sta 4*8
-        sta 5*8
-        sta 6*8
-        sta 7*8
         lxi h, rst3_hand
         shld 3*8+1
         lxi h, rst4_hand
         shld 4*8+1
-        ;lxi h, rst5_hand
-        ;shld 5*8+1
-        ;lxi h, rst6_hand
-        ;shld 6*8+1
-        ;lxi h, rst7_hand
-        ;shld 7*8+1
 run_guest:
         ;lxi h, test_guest ;$100
         lxi h, $100
@@ -238,9 +231,6 @@ run_guest:
         shld guest_sp
         jmp rst5_scan
         
-;rst7_hand:
-;        ret
-
         ; bpt in place of branch (8080)
 rst4_hand:
         shld guest_hl                   ; save guest hl
@@ -248,9 +238,6 @@ rst4_hand:
         push psw                        ; guest psw on stack
         dcx h                           ; h <- guest pc - 1
         shld guest_pc                   ; return addr (guest pc - 1)
-        ;lhld bptsave_t_ptr              ; restore bpt t insn
-        ;lda bptsave_t
-        ;mov m, a 
 bptsave_t4 .equ $+1
         mvi a, 0
 bptsave_t4_ptr .equ $+1
@@ -358,16 +345,14 @@ ss_nop:
         ret
         
 ss_rz:
-        lhld guest_psw
-        push h
-        pop psw
-        jz ss_ret
+        lda guest_psw
+        ani $40
+        jnz ss_ret
         jmp ss_nop
 ss_rnz:
-        lhld guest_psw
-        push h
-        pop psw
-        jnz ss_ret
+        lda guest_psw
+        ani $40
+        jz ss_ret
         jmp ss_nop
 ss_rc:
         lhld guest_psw
@@ -415,23 +400,23 @@ ss_pchl:
 emu_br3: 
         mov a, m
         cpi $cd \ jz ss_call       ;	call 00000h	call	X0000
-        cpi $c2 \ jz ss_jnz       ;	jp nz,00000h	jnz	X0000
-        cpi $c3 \ jz ss_jmp       ;	jp 00000h       jmp	X0000
-        cpi $c4 \ jz ss_cnz       ;	call nz,00000h	cnz	X0000
-        cpi $ca \ jz ss_jz       ;	jp z,00000h	jz	X0000
-        cpi $cc \ jz ss_cz       ;	call z,00000h   cz	X0000
-        cpi $d2 \ jz ss_jnc       ;	jp nc,00000h	jnc	X0000
-        cpi $d4 \ jz ss_cnc       ;	call nc,00000h	cnc	X0000
-        cpi $da \ jz ss_jc       ;	jp c,00000h     jc	X0000
-        cpi $dc \ jz ss_cc       ;	call c,00000h   cc	X0000
-        cpi $e2 \ jz ss_jpo       ;	jp po,00000     jpo	X0000
-        cpi $e4 \ jz ss_cpo       ;	call po,00000h  cpo	X0000
-        cpi $ea \ jz ss_jpe       ;	jp pe,00000h	jpe	X0000
-        cpi $ec \ jz ss_cpe       ;	call pe,00000h	cpe	X0000
-        cpi $f2 \ jz ss_jp       ;	jp p,00000	jp	X0000
-        cpi $f4 \ jz ss_cp       ;	call p,00000h	cp	X0000
-        cpi $fa \ jz ss_jm       ;	jp m,00000      jm	X0000
-        cpi $fc \ jz ss_cm       ;	call m,00000h   cm	X0000
+        cpi $c2 \ jz ss_jnz        ;	jp nz,00000h	jnz	X0000
+        cpi $c3 \ jz ss_jmp        ;	jp 00000h       jmp	X0000
+        cpi $c4 \ jz ss_cnz        ;	call nz,00000h	cnz	X0000
+        cpi $ca \ jz ss_jz         ;	jp z,00000h	jz	X0000
+        cpi $cc \ jz ss_cz         ;	call z,00000h   cz	X0000
+        cpi $d2 \ jz ss_jnc        ;	jp nc,00000h	jnc	X0000
+        cpi $d4 \ jz ss_cnc        ;	call nc,00000h	cnc	X0000
+        cpi $da \ jz ss_jc         ;	jp c,00000h     jc	X0000
+        cpi $dc \ jz ss_cc         ;	call c,00000h   cc	X0000
+        cpi $e2 \ jz ss_jpo        ;	jp po,00000     jpo	X0000
+        cpi $e4 \ jz ss_cpo        ;	call po,00000h  cpo	X0000
+        cpi $ea \ jz ss_jpe        ;	jp pe,00000h	jpe	X0000
+        cpi $ec \ jz ss_cpe        ;	call pe,00000h	cpe	X0000
+        cpi $f2 \ jz ss_jp         ;	jp p,00000	jp	X0000
+        cpi $f4 \ jz ss_cp         ;	call p,00000h	cp	X0000
+        cpi $fa \ jz ss_jm         ;	jp m,00000      jm	X0000
+        cpi $fc \ jz ss_cm         ;	call m,00000h   cm	X0000
         jmp $
 
 ss_3nop:
@@ -1366,20 +1351,18 @@ emu_rlc_r:
         dcx h
         push h
         call getreg_a
-        mov b, a
-        lda guest_psw           ; 
-        rar                     ; guest carry -> c
-        mov a, b
-        
         rlc
         mov b, a                ; save result in b
         pop h
         
-        lda guest_psw           ; update carry bit in guest psw
-        jc $+8
-        ani ~(FLAGBIT_C)
-        jmp $+5
-        ori FLAGBIT_C
+        mvi a, 0
+        ral
+        mov c, a                ; c = carry bit
+        xra a \ ora b           ; a = result, psw set SZ flags
+        push psw
+        mov a, c
+        pop b
+        ora c                   ; a <- psw with SZC bits set
         sta guest_psw
         
         mov a, b                ; result
@@ -1391,21 +1374,18 @@ emu_rrc_r:
         dcx h
         push h
         call getreg_a
-
-        mov b, a
-        lda guest_psw           ; 
-        rar                     ; guest carry -> c
-        mov a, b
-        
         rrc
         mov b, a                ; save result in b
         pop h
         
-        lda guest_psw           ; update carry bit in guest psw
-        jc $+8
-        ani ~(FLAGBIT_C)
-        jmp $+5
-        ori FLAGBIT_C
+        mvi a, 0
+        ral
+        mov c, a                ; c = carry bit
+        xra a \ ora b           ; a = result, psw set SZ flags
+        push psw
+        mov a, c
+        pop b
+        ora c                   ; a <- psw with SZC bits set
         sta guest_psw
         
         mov a, b                ; result
@@ -1425,13 +1405,16 @@ emu_rl_r:
         mov b, a                ; save result in b
         pop h
         
-        lda guest_psw           ; update carry bit in guest psw
-        jc $+8
-        ani ~(FLAGBIT_C)
-        jmp $+5
-        ori FLAGBIT_C
+        mvi a, 0
+        ral
+        mov c, a                ; c = carry bit
+        xra a \ ora b           ; a = result, psw set SZ flags
+        push psw
+        mov a, c
+        pop b
+        ora c                   ; a <- psw with SZC bits set
         sta guest_psw
-        
+
         mov a, b                ; result
         call setreg_a
         ret
@@ -1449,11 +1432,14 @@ emu_rr_r:
         mov b, a                ; save result in b
         pop h
         
-        lda guest_psw           ; update carry bit in guest psw
-        jc $+8
-        ani ~(FLAGBIT_C)
-        jmp $+5
-        ori FLAGBIT_C
+        mvi a, 0
+        ral
+        mov c, a                ; c = carry bit
+        xra a \ ora b           ; a = result, psw set SZ flags
+        push psw
+        mov a, c
+        pop b
+        ora c                   ; a <- psw with SZC bits set
         sta guest_psw
         
         mov a, b                ; result
@@ -1470,11 +1456,14 @@ emu_sla_r:
         mov b, a                ; save result in b
         pop h
         
-        lda guest_psw           ; update carry bit in guest psw
-        jc $+8
-        ani ~(FLAGBIT_C)
-        jmp $+5
-        ori FLAGBIT_C
+        mvi a, 0
+        ral
+        mov c, a                ; c = carry bit
+        xra a \ ora b           ; a = result, psw set SZ flags
+        push psw
+        mov a, c
+        pop b
+        ora c                   ; a <- psw with SZC bits set
         sta guest_psw
         
         mov a, b                ; result
@@ -1495,11 +1484,14 @@ emu_sra_r:
         mov b, a                ; save result in b
         pop h
         
-        lda guest_psw           ; update carry bit in guest psw
-        jc $+8
-        ani ~(FLAGBIT_C)
-        jmp $+5
-        ori FLAGBIT_C
+        mvi a, 0
+        ral
+        mov c, a                ; c = carry bit
+        xra a \ ora b           ; a = result, psw set SZ flags
+        push psw
+        mov a, c
+        pop b
+        ora c                   ; a <- psw with SZC bits set
         sta guest_psw
         
         mov a, b                ; result
@@ -1520,11 +1512,14 @@ emu_srl_r:
         mov b, a                ; save result in b
         pop h
         
-        lda guest_psw           ; update carry bit in guest psw
-        jc $+8
-        ani ~(FLAGBIT_C)
-        jmp $+5
-        ori FLAGBIT_C
+        mvi a, 0
+        ral
+        mov c, a                ; c = carry bit
+        xra a \ ora b           ; a = result, psw set SZ flags
+        push psw
+        mov a, c
+        pop b
+        ora c                   ; a <- psw with SZC bits set
         sta guest_psw
         
         mov a, b                ; result
