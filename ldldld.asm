@@ -299,6 +299,7 @@ bptsave_t_ptr equ $+1
         ei
         ;
         lhld guest_pc
+_emu_ld_immediate:        
         call emu_ld                     ; emulate ld ld, (ld)
 rst5_scan_ext:
         lhld guest_pc
@@ -460,10 +461,8 @@ ss_call:
         mov d, m
         inx h
         xchg
-        push d
-          shld guest_pc
-          lhld guest_sp
-        pop d
+        shld guest_pc
+        lhld guest_sp
         ; push return addr
         dcx h 
         mov m, d
@@ -601,10 +600,6 @@ ss_cm:
         jm ss_call
         jmp ss_3nop
         
-        
-        
-;bptsave_t_ptr:  .dw 0                   ; bpt true insn addr
-;bptsave_t:      .db 0                   ; bpt branch if condition true, insn addr mem[sp]
 
 guest_ix:       .dw 0
 guest_iy:       .dw 0
@@ -616,7 +611,8 @@ scan_until_br:
         mov e, m
         ldax d
         ora a
-        jz scubr_emulate
+        ;jz scubr_emulate
+        jz _re_emu_ld_immediate
         jm scubr_br_btw
         add l
         mov l, a
@@ -637,6 +633,9 @@ scubr_1:
         mov h, a                        ; next pc
         jmp scubr_1
 
+_re_emu_ld_immediate:
+        pop psw                         ; drop stack frame
+        jmp _emu_ld_immediate
         ; regular branch
         ; conditional branch: end of a run, breakpoint
         ; unconditional branch: follow and continue scan
