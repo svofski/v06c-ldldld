@@ -11,7 +11,7 @@
 ; [x] DD prefix (IX):  push/pop; ld ix, im16; inc/dec; ld sp,ix, ld l,(ix+nn), cp (ix+nn)
 ; [x] DD CB prefix set 7,(ix+46); bit n, (ix+im8); res n, (ix+im8)
 ; [x] ED: LDI/LDIR, 
-; [ ] FD prefix (IY).. should be same as ix?
+; [x] FD prefix (IY).. should be same as ix?
 ; [ ] LDD/LDDR, CPD/CPDR, IND/INDR, OUTD/OTDR seem to be not used in rogue
 ;
 ; FIXME
@@ -19,10 +19,6 @@
 ; [ ] srl, rr, rl   set/reset Z flag
 ; [x] rl,rr,rlc,rrc ignores carry in
 ; [ ] add ix, rp    set/reset Z flag like adc hl,rp
-;
-; [ ] rst 5 / rst 5 don't exist no more, but the code branches into handlers 
-;     move things around and remove crud
-; [ ] saved insn/addrs can be inlined with rst3 or rst4 code
 
 traptab_org     .equ $9000
 host_org        .equ traptab_org + $100
@@ -1218,7 +1214,18 @@ getbit_a:
         mvi h, bit_value >> 8
         mov a, m
         ret
-        
+
+        ; a = opcode
+        ; bit number 00nnn000 -> a
+getbit_aa:
+        ani 0b00111000
+        rar \ rar \ rar
+        mov l, a
+        mvi h, bit_value >> 8
+        mov a, m
+        ret
+
+
         ; get guest reg 00000rrr: 0=b, 1=c, 2=d, 3=e, 4=h, 5=l, 6=m, 7=a
         ; opcode in m
         ; result in a
@@ -1757,9 +1764,11 @@ emu_dd_ldixim8r:
         mov m, b                ; mem[ix+im8] <- r
         ret
 
-
-        ; branch out to the unholy set of bit/set/res (ix + im8)
+        ; branch out to the unholy set of bit/set/res n, (ix + im8)
+        ; DD CB im8 opcode
 emu_ddcb:
+        inx h
+        mov e, m                ; e <- im8
         inx h
         mvi a, 0b11000111       ; bit n, (ix+im8) : 01nnn110
         ana m
@@ -1772,17 +1781,16 @@ emu_ddcb:
         jmp $                   ; rlc/rl/sla/rrc/rr/sra/srl - sorry
 
         ; bit n, (ix+im8)
+        ; e = im8
 ddcb_bitixim8:
-        push h
-        inx h
-        mov e, m
+        mov c, m                ; c <- opcode
         inx h
         shld guest_pc 
-        call ix_plus_e_hl       ; hl = ix + int8_t(e)
-        mov b, m                ; e <- mem[ix+im8]
+        call ix_plus_e_hl       ; hl <- ix + int8_t(e)
+        mov b, m                ; b <- mem[ix+im8]
 
-        pop h
-        call getbit_a
+        mov a, c
+        call getbit_aa          ; a <- bit value (opcode)
         ana b
         push psw
         pop b                   ; b <- a, c <- f
@@ -1791,39 +1799,32 @@ ddcb_bitixim8:
         ret
         
         ; res n, (ix+im8)
+        ; e = im8
 ddcb_resixim8:
-        push h
-          inx h
-          mov e, m
-          inx h
-          shld guest_pc 
-        pop h
-        call getbit_a
+        mov a, m                ; opcode
+        inx h
+        shld guest_pc 
+        call getbit_aa
         cma
         mov b, a
         
-        call ix_plus_e_hl       ; hl = ix + int8_t(e)
+        call ix_plus_e_hl       ; hl <- ix + int8_t(e)
         mov a, m                ; a <- mem[ix+im8]
-
         ana b                   ; a = a & ~bitval
         mov m, a
         ret
         
         ; set n, (ix+im8)
 ddcb_setixim8:
-        push h
-          inx h
-          mov e, m
-          inx h
-          shld guest_pc 
-        pop h
-        call getbit_a
+        mov a, m                ; opcode
+        inx h
+        shld guest_pc 
+        call getbit_aa
         mov b, a
         
-        call ix_plus_e_hl       ; hl = ix + int8_t(e)
+        call ix_plus_e_hl       ; hl <- ix + int8_t(e)
         mov a, m                ; a <- mem[ix+im8]
-
-        ora b                   ; a = a & ~bitval
+        ora b                   ; a = a | bitval
         mov m, a
         ret
         
