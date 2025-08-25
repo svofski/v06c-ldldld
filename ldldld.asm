@@ -303,6 +303,7 @@ guest_pc .equ $+1
         
         ; singlestep a br1 insn in
         ; mem[hl] = opc
+        ; returns hl = guest_pc
 emu_br1:
         mov a, m
         cpi OPC_RET
@@ -440,17 +441,18 @@ ss_call:
         inx h
         mov e, m
         inx h
-        mov d, m
+        mov d, m        ; de <- dst addr
         inx h
-        xchg
-        shld guest_pc
+        xchg            ; hl <- dst addr, de <- return addr
+        shld guest_pc   ; guest_pc <- dst addr
         lhld guest_sp
         ; push return addr
-        dcx h 
+        dcx h
         mov m, d
         dcx h
         mov m, e
         shld guest_sp
+        lhld guest_pc
         ret
 ss_jnz:
         xchg
@@ -589,11 +591,10 @@ guest_iy:       .dw 0
         ; hl = guest pc
 scan_until_br:
         mvi d, traptab >> 8
-        ; first insn can be a cond branch, which is emulated immediately
+        ; first insn can be a cond branch or return, which is emulated immediately
         mov e, m
         ldax d
         ora a
-        ;jz scubr_emulate
         jz _re_emu_ld_immediate
         jm scubr_br_btw
         add l
@@ -637,17 +638,20 @@ scubr_emulate:
         mvi m, OPC_RST3
         ret
         
-        ; first instruction in the run is a branch: 
+        ; first instruction in the run is a branch
         ; emulate and restart scan
 scubr_br_btw:
         jpo brip_jmplike
 brip_retlike:
+        ;lxi b, scan_until_br
+        ;push b
+        ;jmp emu_br1
         call emu_br1            ; perform branch
-        lhld guest_pc           ; hl <- guest_pc
+        ;lhld guest_pc           ; hl <- guest_pc
         jmp scan_until_br       ; scan again
 brip_jmplike:
         call emu_br3
-        lhld guest_pc
+        ;lhld guest_pc
         jmp scan_until_br
 
         ; unconditional! jump in the middle of a run
