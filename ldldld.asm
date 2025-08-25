@@ -54,6 +54,7 @@ OPC_CALL        .equ $cd
 
 FLAGBIT_C       .equ $01                ; carry
 FLAGBIT_N       .equ $02                ; N
+FLAGBIT_P       .equ $04                ; P 1 = PE, 0 = PO
 FLAGBIT_Z       .equ $40                ; zero
 FLAGBIT_S       .equ $80                ; negative
 
@@ -348,49 +349,47 @@ ss_nop:
         
 ss_rz:
         lda guest_psw
-        ani $40
+        ani FLAGBIT_Z
         jnz ss_ret
         jmp ss_nop
 ss_rnz:
         lda guest_psw
-        ani $40
+        ani FLAGBIT_Z
         jz ss_ret
         jmp ss_nop
 ss_rc:
-        lhld guest_psw
-        push h
-        pop psw
+        lda guest_psw
+        ;ani FLAGBIT_C
+        ;jnz ss_ret
+        rar
         jc ss_ret
         jmp ss_nop
 ss_rnc:
-        lhld guest_psw
-        push h
-        pop psw
+        lda guest_psw
+        ;ani FLAGBIT_C
+        ;jz ss_ret
+        rar
         jnc ss_ret
         jmp ss_nop
 ss_rpo:
-        lhld guest_psw
-        push h
-        pop psw
-        jpo ss_ret
+        lda guest_psw
+        ani FLAGBIT_P
+        jz ss_ret
         jmp ss_nop
 ss_rpe:
-        lhld guest_psw
-        push h
-        pop psw
-        jpe ss_ret
+        lda guest_psw
+        ani FLAGBIT_P
+        jnz ss_ret
         jmp ss_nop
 ss_rm:
-        lhld guest_psw
-        push h
-        pop psw
-        jm ss_ret
+        lda guest_psw
+        ani FLAGBIT_S
+        jnz ss_ret
         jmp ss_nop
 ss_rp:        
-        lhld guest_psw
-        push h
-        pop psw
-        jp ss_ret
+        lda guest_psw
+        ani FLAGBIT_S
+        jz ss_ret
         jmp ss_nop
 
 ss_pchl:
@@ -1071,12 +1070,6 @@ emu_jr:
         inx h
         jp emu_jr_positive
 emu_jr_negative:        
-        ; add l
-        ; mov l, a
-        ; mvi a, -1
-        ; adc h
-        ; mov h, a
-        ; shld guest_pc
         add l
         sta guest_pc
         mvi a, -1
@@ -1084,15 +1077,6 @@ emu_jr_negative:
         sta guest_pc+1
         ret
 emu_jr_positive:
-        ; add l
-        ; mov l, a
-        ; mvi a, 0
-        ; adc h
-        ; ;mov a, h
-        ; ;aci 0
-        ; mov h, a
-        ; shld guest_pc  ; 4+8+8+4+8+20
-        
         add l           ; 4+16+8+4+16
         sta guest_pc
         mvi a, 0
