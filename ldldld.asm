@@ -53,6 +53,7 @@ OPC_JMP         .equ $c3
 OPC_CALL        .equ $cd
 
 FLAGBIT_C       .equ $01                ; carry
+FLAGBIT_N       .equ $02                ; N
 FLAGBIT_Z       .equ $40                ; zero
 FLAGBIT_S       .equ $80                ; negative
 
@@ -976,6 +977,7 @@ _adchlss2:
         dad d           ; hl <- guest_hl + ss
         shld guest_hl
         ; 8080 dad only sets C, we also want Z and S
+_adchlss_setf:
         push psw
         pop d           ; e = flags
         mvi a, $3f      ; clear S Z
@@ -1031,9 +1033,18 @@ _sbchlss2:
         shld guest_hl
         
         ; flags
-        push psw
-        pop b
-        mov a, c
+        lxi b, 0
+        jnc $+5
+        mvi c, 1                        ; carry
+        jp $+5
+        mvi b, FLAGBIT_S                ; minus
+        mov a, h
+        ora l
+        mvi a, FLAGBIT_N
+        jnz $+5
+        ori FLAGBIT_Z
+        ora b
+        ora c
         sta guest_psw
         ret
 
