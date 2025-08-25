@@ -589,6 +589,7 @@ guest_iy:       .dw 0
 
         ; hl = guest pc
 scan_until_br:
+        mvi b, 0
         mvi d, traptab >> 8
         ; first insn can be a cond branch or return, which is emulated immediately
         mov e, m
@@ -596,11 +597,8 @@ scan_until_br:
         ora a
         jz _re_emu_ld_immediate
         jm scubr_br_btw
-        add l
-        mov l, a
-        mvi a, 0
-        adc h
-        mov h, a
+        mov c, a
+        dad b
         ; next insn
 scubr_1:
         mov e, m                        ; de = &traptab[mem[pc]]
@@ -608,11 +606,8 @@ scubr_1:
         ora a
         jz scubr_emulate                ; found emulated insn
         jm scubr_branch                 ; found a branch
-        add l                           ; normal insn, advance ptr
-        mov l, a
-        mvi a, 0
-        adc h
-        mov h, a                        ; next pc
+        mov c, a                        ; normal insn, advance ptr
+        dad b
         jmp scubr_1
 
 _re_emu_ld_immediate:
@@ -662,6 +657,7 @@ scubr_br_meanwhile:
         mov d, m
         xchg
         mvi d, traptab >> 8
+        mvi b, 0
         jmp scubr_1
 
 
