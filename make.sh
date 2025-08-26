@@ -18,4 +18,4 @@ TYPE README.CPM
 
 END
 
-../fddutil/fddutil.js -i ld.com -i rogue06c.com -i rogue.doc -i initial.sub -i type.com -i readme.cpm -o ldldld.fdd
+../fddutil/fddutil.js -i ld.com -i rogue06c.com -i rogue.doc -i initial.sub -i type.com -i readme.cpm -i file_id.diz -o ldldld.fdd

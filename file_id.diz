@@ -21,18 +21,3 @@
            
             
             
-LD LD, (LD): Z80 runner for 8080 Vector-06C
-
-
-To run ROGUE 1.7 by David Goodenough:
-
-LD ROGUE06C.COM
-
-SHIFT without other keys works as CAPSLOCK
-
-     y  k  u    Directional keys
-     h  .  l    Shift = run until something
-     b  j  n    nn + action = repeat (e.g. 10s search 10 times)
-
-TYPE ROGUE.DOC to read full documentation.
-
