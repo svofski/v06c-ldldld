@@ -225,6 +225,18 @@ install_handlers:
         shld 3*8+1
         lxi h, rst4_hand
         shld 4*8+1
+        
+        ; in T-34 this is the frame counter
+        di
+        sta 7*8
+        lhld 7*8+1
+        shld rst7_old
+        lxi h, rst7_hand
+        shld 7*8+1
+        lda $ffc7
+        sta guest_r
+        ei
+        
 run_guest:
         ;lxi h, test_guest ;$100
         lxi h, $100
@@ -232,6 +244,16 @@ run_guest:
         lxi h, guest_stack
         shld guest_sp
         jmp rst5_scan
+        
+rst7_hand:
+        push psw
+        push h
+        lxi h, guest_r
+        inr m
+        pop h
+        pop psw
+rst7_old .equ $+1        
+        jmp 0
         
         ; bpt in place of branch (8080)
 rst4_hand:
@@ -877,6 +899,7 @@ emu_ed:
 ed_ldar:
         inx h
         shld guest_pc
+guest_r .equ $+1        
         mvi a, 4 ; chosen by fair dice roll
                  ; guarranteed to be random
         sta guest_psw+1
