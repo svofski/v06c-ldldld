@@ -13,4 +13,9 @@ dd if=ldldld.com of=$CORE skip=$[0x8f00] bs=1
 
 cat start.0100 $CORE_Z >ld.com
 
-../fddutil/fddutil.js -i ld.com -i rogue06c.com -i rogue.doc -o ldldld.fdd
+cat <<END >initial.sub
+TYPE README.CPM
+
+END
+
+../fddutil/fddutil.js -i ld.com -i rogue06c.com -i rogue.doc -i initial.sub -i type.com -i readme.cpm -o ldldld.fdd

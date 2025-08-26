@@ -825,6 +825,7 @@ emu_dd:
         cpi $23 \ jz emu_dd_incix
         cpi $2a \ jz emu_dd_ldixa16
         cpi $2b \ jz emu_dd_decix
+        cpi $36 \ jz emu_dd_ldixim8nn
         cpi $be \ jz emu_dd_cpixim8
         cpi $ae \ jz emu_dd_xorixim8
         cpi $9e \ jz emu_dd_sbcixim8
@@ -1812,6 +1813,20 @@ emu_dd_ldixim8r:
         mov m, b                ; mem[ix+im8] <- r
         ret
 
+        ; LD (IX+xx), nn
+        ; dd 36 xx nn  
+emu_dd_ldixim8nn:
+        inx h
+        mov e, m                ; xx (offset)
+        inx h
+        mov b, m                ; nn (value)
+        inx h
+        shld guest_pc
+        call ix_plus_e_hl       ; hl <- ix + (int8_t)offset
+        mov m, b                ; mem[ix+xx] <- value
+        ret
+        
+        
         ; branch out to the unholy set of bit/set/res n, (ix + im8)
         ; DD CB im8 opcode
 emu_ddcb:
