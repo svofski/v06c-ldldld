@@ -589,7 +589,6 @@ guest_iy:       .dw 0
 
         ; hl = guest pc
 scan_until_br:
-        mvi b, 0
         mvi d, traptab >> 8
         ; first insn can be a cond branch or return, which is emulated immediately
         mov e, m
@@ -597,6 +596,7 @@ scan_until_br:
         ora a
         jz _re_emu_ld_immediate
         jm scubr_br_btw
+        mvi b, 0
         mov c, a
         dad b
         ; next insn
@@ -660,10 +660,12 @@ scubr_br_meanwhile:
         mvi b, 0
         jmp scubr_1
 
-
         ; hl = guest pc
 emu_ld:
-        mov a, m
+        xra a
+        ora m
+        ;mov a, m
+        jm _emu_ld2
         cpi $28
         jz emu_jr_z
         cpi $18
@@ -674,6 +676,7 @@ emu_ld:
         jz emu_jr_nz
         cpi $38
         jz emu_jr_c
+_emu_ld2:
         cpi $ed                         ; ED xx..
         jz emu_ed
         cpi $cb
@@ -685,7 +688,8 @@ emu_ld:
         cpi $10
         jz emu_djnz
         jmp $
-       
+
+
         ; CB prefix: bit, res, set...
 emu_cb:
         inx h
