@@ -1,24 +1,15 @@
         ; LD LD, (LD)
+        ;
+        ; Z80 JIT runtime for Vector-06C by svofski, 2025
+        ;
+        ; The emulation is limited, but it runs ROGUE.COM 1.7 by David Goodenough
+        ;
+        ; Assemble with Pretty 8080 Assembler
+        ;
+        ; WARNING/TODO: binary constants incompatible with TASM 3.2
+        ;
         .project ldldld.com
         .tape v06c-rom
-
-; todo:
-; [T] ld rp, (a16)
-; [x] ld (a16), rp      
-; [T] bit/res/set (tested)
-; [x] implement rlc/rrc/rl/rr/srl etc from CB prefix (untested)
-
-; [x] DD prefix (IX):  push/pop; ld ix, im16; inc/dec; ld sp,ix, ld l,(ix+nn), cp (ix+nn)
-; [x] DD CB prefix set 7,(ix+46); bit n, (ix+im8); res n, (ix+im8)
-; [x] ED: LDI/LDIR, 
-; [x] FD prefix (IY).. should be same as ix?
-; [ ] LDD/LDDR, CPD/CPDR, IND/INDR, OUTD/OTDR seem to be not used in rogue
-;
-; FIXME
-; 
-; [x] srl, rr, rl   set/reset Z flag
-; [x] rl,rr         ignores carry in
-; [ ] add ix, rp    set/reset Z flag like adc hl,rp
 
 traptab_org     .equ $9000
 host_org        .equ traptab_org + $100
@@ -34,8 +25,8 @@ OPC_RST1        .equ $cf
 OPC_RST2        .equ $d7
 OPC_RST3        .equ $df                ; emulated insn trap
 OPC_RST4        .equ $e7                ; bpt after single-ended branch
-OPC_RST5        .equ $ef                ; bpt after forked branch
-OPC_RST6        .equ $f7                ; bpt at ret/rst/pchl
+OPC_RST5        .equ $ef
+OPC_RST6        .equ $f7
 
 OPC_RNZ         .equ $c0 	        ; ret nz
 OPC_RZ          .equ $c8 	        ; ret z
@@ -59,7 +50,10 @@ FLAGBIT_Z       .equ $40                ; zero
 FLAGBIT_S       .equ $80                ; negative
 
 fcb1            .equ $5c                ; default fcb
-        ; BDOS functions
+
+;
+; BDOS functions
+;
 C_WRITE         .equ 2
 C_WRITESTR      .equ 9        
 F_OPEN          .equ 15          ; open file
@@ -130,7 +124,7 @@ test_guest:
         lxi d, testmsg
         call 5
         rst 0
-testmsg: .db 'ob, I want all my garmonbozia', 13, 10, '$'
+testmsg: .db "ob, I want all my garmonbozia", 13, 10, "$"
 test_1:
         ret
 test_2:
@@ -288,9 +282,9 @@ rst3_hand:
         push psw                        ; guest psw on stack
         dcx h                           ; h <- guest pc - 1
         shld guest_pc                   ; return addr (guest pc - 1)
-bptsave_t equ $+1        
+bptsave_t .equ $+1        
         mvi a, 0
-bptsave_t_ptr equ $+1        
+bptsave_t_ptr .equ $+1        
         sta 0
 
         lxi h, 2                        ; save guest sp
@@ -634,7 +628,7 @@ scan_until_br:
         ora a
         jz _re_emu_ld_immediate
 scubr_0:        
-        jm scubr_br_btw
+        jm scubr_br_btw                 ; first insn is a branch: emulate, restart scan
         mvi b, 0
         mov c, a
         dad b
@@ -699,13 +693,9 @@ scubr_emulate:
         ; first instruction in the run is a branch
         ; emulate and restart scan
 scubr_br_btw:
-        jpo brip_jmplike
+        jpo brip_jmplike        ; $83 ~ odd, as opposed to $81 ~ even
 brip_retlike:
-        ;lxi b, scan_until_br
-        ;push b
-        ;jmp emu_br1
         call emu_br1            ; perform branch
-        ;lhld guest_pc           ; hl <- guest_pc
         jmp scan_until_br       ; scan again
 brip_jmplike:
         call emu_br3
@@ -728,7 +718,6 @@ scubr_br_meanwhile:
 emu_ld:
         xra a
         ora m
-        ;mov a, m
         jm _emu_ld2
         cpi $28
         jz emu_jr_z
@@ -1366,13 +1355,13 @@ emu_bit:
         jz _ebt_setz
 _ebt_clrz:
         lda guest_psw
-        ani ~0x40       ; clear Z
-        ori 0x10        ; set H
+        ani ~40h       ; clear Z
+        ori 10h        ; set H
         sta guest_psw
         ret
 _ebt_setz:
         lda guest_psw
-        ori 0x40|0x10   ; set Z+H
+        ori 40h|10h   ; set Z+H
         sta guest_psw
         ret
         
@@ -2152,3 +2141,26 @@ traptab:
         .db 0 ; $fd 	defb 0fdh       #######################
         .db 2 ; $fe 	cp 000h	        cpi	0
         .db $81 ; $ff 	rst 38h	
+
+        .end
+        
+        
+; todo:
+; [T] ld rp, (a16)
+; [x] ld (a16), rp      
+; [T] bit/res/set (tested)
+; [x] implement rlc/rrc/rl/rr/srl etc from CB prefix (untested)
+
+; [x] DD prefix (IX):  push/pop; ld ix, im16; inc/dec; ld sp,ix, ld l,(ix+nn), cp (ix+nn)
+; [x] DD CB prefix set 7,(ix+46); bit n, (ix+im8); res n, (ix+im8)
+; [x] ED: LDI/LDIR, 
+; [x] FD prefix (IY).. should be same as ix?
+; [ ] LDD/LDDR, CPD/CPDR, IND/INDR, OUTD/OTDR seem to be not used in rogue
+;
+; FIXME
+; 
+; [x] srl, rr, rl   set/reset Z flag
+; [x] rl,rr         ignores carry in
+; [ ] add ix, rp    set/reset Z flag like adc hl,rp
+
+        
