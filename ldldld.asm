@@ -341,57 +341,66 @@ ss_ret:
         shld guest_pc                   ; guest_pc <- return addr
         ret
         
-ss_nop:        
-        lhld guest_pc
-        inx h
-        shld guest_pc
-        ret
-        
 ss_rz:
         lda guest_psw
         ani FLAGBIT_Z
         jnz ss_ret
-        jmp ss_nop
+        inx h
+        shld guest_pc
+        ret
 ss_rnz:
         lda guest_psw
         ani FLAGBIT_Z
         jz ss_ret
-        jmp ss_nop
+        inx h
+        shld guest_pc
+        ret
 ss_rc:
         lda guest_psw
         ;ani FLAGBIT_C
         ;jnz ss_ret
         rar
         jc ss_ret
-        jmp ss_nop
+        inx h
+        shld guest_pc
+        ret
 ss_rnc:
         lda guest_psw
         ;ani FLAGBIT_C
         ;jz ss_ret
         rar
         jnc ss_ret
-        jmp ss_nop
+        inx h
+        shld guest_pc
+        ret
 ss_rpo:
         lda guest_psw
         ani FLAGBIT_P
         jz ss_ret
-        jmp ss_nop
+        inx h
+        shld guest_pc
+        ret
 ss_rpe:
         lda guest_psw
         ani FLAGBIT_P
         jnz ss_ret
-        jmp ss_nop
+        inx h
+        shld guest_pc
+        ret
 ss_rm:
         lda guest_psw
         ani FLAGBIT_S
         jnz ss_ret
-        jmp ss_nop
+        inx h
+        shld guest_pc
+        ret
 ss_rp:        
         lda guest_psw
         ani FLAGBIT_S
         jz ss_ret
-        jmp ss_nop
-
+        inx h
+        shld guest_pc
+        ret
 ss_pchl:
         lhld guest_hl
         shld guest_pc
@@ -648,7 +657,7 @@ brip_jmplike:
         ;lhld guest_pc
         jmp scan_until_br
 
-        ; unconditional! jump in the middle of a run
+        ; unconditional! jump/call in the middle of a run
         ; follow-through and continue scan
 scubr_br_meanwhile:
         inx h
