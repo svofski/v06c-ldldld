@@ -288,7 +288,14 @@ _emu_ld_immediate:
         call emu_ld                     ; emulate ld ld, (ld)
 rst5_scan_ext:
         lhld guest_pc
-        call scan_until_br
+        ;call scan_until_br
+        mvi d, traptab >> 8
+        ; first insn can be a cond branch or return, which is emulated immediately
+        mov e, m
+        ldax d
+        ora a
+        jz _emu_ld_immediate
+        call scubr_0
         ; return control to guest
         pop d
         pop b
@@ -604,6 +611,7 @@ scan_until_br:
         ldax d
         ora a
         jz _re_emu_ld_immediate
+scubr_0:        
         jm scubr_br_btw
         mvi b, 0
         mov c, a
@@ -617,11 +625,36 @@ scubr_1:
         jm scubr_branch                 ; found a branch
         mov c, a                        ; normal insn, advance ptr
         dad b
+
+        mov e, m                        ; de = &traptab[mem[pc]]
+        ldax d                          ; a = traptab[mem[pc]]
+        ora a
+        jz scubr_emulate                ; found emulated insn
+        jm scubr_branch                 ; found a branch
+        mov c, a                        ; normal insn, advance ptr
+        dad b
+
+        mov e, m                        ; de = &traptab[mem[pc]]
+        ldax d                          ; a = traptab[mem[pc]]
+        ora a
+        jz scubr_emulate                ; found emulated insn
+        jm scubr_branch                 ; found a branch
+        mov c, a                        ; normal insn, advance ptr
+        dad b
+
+        mov e, m                        ; de = &traptab[mem[pc]]
+        ldax d                          ; a = traptab[mem[pc]]
+        ora a
+        jz scubr_emulate                ; found emulated insn
+        jm scubr_branch                 ; found a branch
+        mov c, a                        ; normal insn, advance ptr
+        dad b
         jmp scubr_1
 
 _re_emu_ld_immediate:
         pop psw                         ; drop stack frame
         jmp _emu_ld_immediate
+        
         ; regular branch
         ; conditional branch: end of a run, breakpoint
         ; unconditional branch: follow and continue scan
