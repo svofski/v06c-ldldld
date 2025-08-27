@@ -1,3 +1,5 @@
+; rst5jr -- broken, runs away
+
         ; LD LD, (LD)
         ;
         ; Z80 JIT runtime for Vector-06C by svofski, 2025
@@ -25,7 +27,7 @@ OPC_RST1        .equ $cf
 OPC_RST2        .equ $d7
 OPC_RST3        .equ $df                ; emulated insn trap
 OPC_RST4        .equ $e7                ; bpt after single-ended branch
-OPC_RST5        .equ $ef
+OPC_RST5        .equ $ef                ; jr
 OPC_RST6        .equ $f7
 
 OPC_RNZ         .equ $c0 	        ; ret nz
@@ -42,6 +44,7 @@ OPC_PCHL        .equ $e9
 
 OPC_JMP         .equ $c3
 OPC_CALL        .equ $cd
+OPC_JR          .equ $18                ; --> rst5 (see rst5jr)
 
 FLAGBIT_C       .equ $01                ; carry
 FLAGBIT_N       .equ $02                ; N
@@ -215,10 +218,14 @@ install_handlers:
         mvi a, OPC_JMP
         sta 3*8
         sta 4*8
+        sta 5*8                 ;;#rst5jr
         lxi h, rst3_hand
         shld 3*8+1
         lxi h, rst4_hand
         shld 4*8+1
+        
+        lxi h, rst5jr_hand      ;;#rst5jr
+        shld 5*8+1
         
         ; in T-34 this is the frame counter
         di
@@ -334,6 +341,8 @@ emu_br1:
         jz ss_ret
         cpi OPC_RZ
         jz ss_rz
+        cpi OPC_JR
+        jz ss_jr
         cpi OPC_RNZ
         jz ss_rnz
         cpi OPC_RC
@@ -351,6 +360,30 @@ emu_br1:
         cpi OPC_PCHL
         jz ss_pchl
         jmp $
+        
+ss_jr:
+        inx h
+        xra a
+        ora m
+        inx h
+        jp ss_jr_positive
+ss_jr_negative:        
+        add l
+        mov l, a
+        mvi a, -1
+        adc h
+        mov h, a
+        shld guest_pc
+        ret
+ss_jr_positive:
+        add l           ; 4+16+8+4+16
+        mov l, a
+        mvi a, 0
+        adc h
+        mov h, a
+        shld guest_pc
+        ret
+        
         
         ; normal: user pc <- mem[guest_sp], guest_sp += 2
 ss_ret:
@@ -678,9 +711,16 @@ scubr_branch:
         mov a, m                        ; opcode
         cpi OPC_CALL \ jz scubr_br_meanwhile
         cpi OPC_JMP \ jz scubr_br_meanwhile
+        cpi OPC_JR  \ cz insert_rst5jr  ; jr will be replaced and immediately meanwhiled
+        cpi OPC_RST5 \ jz scubr_jr_meanwhile
         sta bptsave_t4
         shld bptsave_t4_ptr
         mvi m, OPC_RST4
+        ret
+
+insert_rst5jr:
+        mvi a, OPC_RST5
+        mov m, a
         ret
 
 scubr_emulate:
@@ -693,7 +733,7 @@ scubr_emulate:
         ; first instruction in the run is a branch
         ; emulate and restart scan
 scubr_br_btw:
-        jpo brip_jmplike        ; $83 ~ odd, as opposed to $81 ~ even
+        jpo brip_jmplike        ; $83 ~ odd, as opposed to $81/82 ~ even
 brip_retlike:
         call emu_br1            ; perform branch
         jmp scan_until_br       ; scan again
@@ -713,18 +753,43 @@ scubr_br_meanwhile:
         mvi d, traptab >> 8
         mvi b, 0
         jmp scubr_1
+scubr_jr_meanwhile:
+        inx h
+        xra a
+        ora m
+        inx h
+        jp _mw_jr_positive
+_mw_jr_negative:        
+        add l
+        mov l, a
+        mvi a, -1
+        adc h
+        mov h, a
+        mvi d, traptab >> 8
+        mvi b, 0
+        jmp scubr_1
+_mw_jr_positive:
+        add l           ; 4+16+8+4+16
+        mov l, a
+        mvi a, 0
+        adc h
+        mov h, a
+        mvi d, traptab >> 8
+        mvi b, 0
+        jmp scubr_1
+        
 
         ; hl = guest pc
 emu_ld:
         xra a
         ora m
         jm _emu_ld2
+        cpi $30
+        jz emu_jr_nc
         cpi $28
         jz emu_jr_z
         cpi $18
         jz emu_jr
-        cpi $30
-        jz emu_jr_nc
         cpi $20
         jz emu_jr_nz
         cpi $38
@@ -1118,6 +1183,34 @@ emu_djnz:
         shld guest_pc
         ret
         
+;;#rst5jr -- fast jr replacement with rst5
+rst5jr_hand:
+        shld rst5jr_hl
+        pop h        ; h <- pc + 1, = &offset
+        push psw
+        xra a
+        ora m        ; a = offset
+        inx h
+        jp rst5jr_positive
+rst5jr_negative:
+        add l
+        sta rst5jr_dst
+        mvi a, -1
+rst5jr_ret:
+        adc h
+        sta rst5jr_dst+1
+        pop psw
+rst5jr_hl .equ $+1        
+        lxi h, 0
+rst5jr_dst .equ $+1        
+        jmp 0
+rst5jr_positive:
+        add l
+        sta rst5jr_dst
+        mvi a, 0
+        jmp rst5jr_ret
+;;#rst5jr
+
 emu_jr:
         inx h
         xra a
@@ -1137,8 +1230,8 @@ emu_jr_positive:
         mvi a, 0
         adc h
         sta guest_pc+1
-        
         ret
+        
 emu_jr_nz:
         lda guest_psw 
         ani $40
@@ -1924,7 +2017,7 @@ traptab:
         .db 1 ; $15 	dec d		dcr	d
         .db 2 ; $16 	ld d,000h	mvi	d,0
         .db 1 ; $17 	rla		ral
-        .db 0 ; $18 	jr $+2	        #######################
+        .db $82 ; $18 	jr $+2	        #######################  ;;#rst5jr treat jr as a branch
         .db 1 ; $19 	add hl,de	dad	d
         .db 1 ; $1a 	ld a,(de)	ldax	d
         .db 1 ; $1b 	dec de		dcx	d
@@ -2139,7 +2232,7 @@ traptab:
         .db $83 ; $ec 	call pe,00000h	cpe	X0000
         .db 0 ; $ed 	defb 0edh       #######################
         .db 2 ; $ee 	xor 000h	xri	0
-        .db $81 ; $ef 	rst 28h		rst	5
+        .db $82 ; $ef 	rst 28h		rst	5       ;;#rst5jr -- rst5 replaces jr (opc $18)
         .db $81 ; $f0 	ret p		rp
         .db 1 ; $f1 	pop af		pop	psw
         .db $83 ; $f2 	jp p,00000	jp	X0000
