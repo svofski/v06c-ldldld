@@ -1,15 +1,26 @@
-; rst5jr -- broken, runs away
-
         ; LD LD, (LD)
         ;
-        ; Z80 JIT runtime for Vector-06C by svofski, 2025
-        ;
-        ; The emulation is limited, but it runs ROGUE.COM 1.7 by David Goodenough
+        ; Z80 compatibility layer for Vector-06C by svofski, 2025
         ;
         ; Assemble with Pretty 8080 Assembler
         ;
         ; WARNING/TODO: binary constants incompatible with TASM 3.2
         ;
+        ; Some notes/glossary:
+        ; 
+        ; TO BTW is to emulate a branch instruction at the start of a run
+        ; when condition flags are known.
+        ;
+        ; TO MEANWHILE is to follow-through an unconditinoal branch instruction 
+        ; during scan, avoiding placing extra breakpoint.
+        ;
+        ; JR xx is permanently replaced on sight with rst5 for faster emulation.
+        ; Other instructions remain intact.
+        ;
+        ; Only a limited subset of Z80 is supported. 
+        ; It runs ROGUE.COM 1.7 by David Goodenough and probably not much else.
+        ;
+
         .project ldldld.com
         .tape v06c-rom
 
@@ -1265,7 +1276,7 @@ emu_jr_c:
         shld guest_pc
         ret
        
-        ; LDI â€“ Load (DE) <- (HL), ++DE, ++HL, --BC 
+        ; LDI – Load (DE) <- (HL), ++DE, ++HL, --BC 
 ed_ldi:
         inx h
         shld guest_pc
