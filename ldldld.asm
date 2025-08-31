@@ -28,6 +28,7 @@ traptab_org     .equ $9000
 host_org        .equ traptab_org + $100
 bpt_stack       .equ traptab_org 
 guest_stack     .equ traptab_org - 64
+cmdline_save    .equ traptab_org - $100
 
 guest_psw       .equ bpt_stack - 2
 guest_bc        .equ bpt_stack - 4
@@ -64,6 +65,7 @@ FLAGBIT_Z       .equ $40                ; zero
 FLAGBIT_S       .equ $80                ; negative
 
 fcb1            .equ $5c                ; default fcb
+fcb2            .equ $6c                ; second fcb
 
 ;
 ; BDOS functions
@@ -157,6 +159,19 @@ test_3:
         ; load guest program to TPA
         di
         lxi sp, bpt_stack
+        ei
+
+        ; save fcb2
+        lxi d, fcb2
+        lxi h, fcb2_save
+        mvi c, 16
+        call memcpy_s
+        
+        ; save command-line buffer
+        lxi d, $80
+        lxi h, cmdline_save
+        mvi c, 128
+        call memcpy_s
 
 load_guest:
         lxi h, $100
@@ -180,16 +195,19 @@ _lg_read_ok:
           lxi d, $80
           mvi c, 128
         pop h
-_lg_memcpy_l:        
-        ldax d \ inx d \ mov m, a \ inx h
-        dcr c
-        jnz _lg_memcpy_l
+        call memcpy_s
         push h
           jmp _lg_loop          
 _lg_read_eof:
         pop h
-        ; wipe out dma and fcb so that the guest doesn't confuse itself
+        ; put fcb2 copy in place of fcb1
+        lxi d, fcb2_save
         lxi h, fcb1
+        mvi c, 16
+        call memcpy_s
+
+        ; wipe out dma and fcb2 so that the guest doesn't confuse itself
+        lxi h, fcb2
         mvi m, 0
         inx h
         mvi m, ' '
@@ -197,7 +215,58 @@ _lg_read_eof:
         xra a
         mov m, a \ inr l
         jnz $-2
+
+        call restore_cmdline
+        
         jmp load_guest_exit
+
+fcb2_save: .ds 16
+
+        ; restore command line
+restore_cmdline:
+        lxi h, cmdline_save
+        xra a
+        ora m
+        rz
+        mov c, a ; full length
+        inx h
+        mvi a, ' '
+_rcm_ws1:        
+        cmp m
+        jnz _rcm_nonws  ; first nonwhitespace char
+        dcr c
+        inr l
+        jnz _rcm_ws1
+        ret
+_rcm_nonws:             ; skip arg1
+        mvi a, ' '
+_rcm_nonws1:        
+        cmp m
+        jz _rcm_ws2
+        dcr c
+        inr l
+        jnz _rcm_nonws1
+_rcm_ws2:
+        inr l
+        dcr c
+        mov a, c
+        sta $80
+        xchg
+        lxi h, $81
+        call memcpy_s
+        ret
+        
+        
+        
+
+        
+        ; short memcpy
+        ; [hl] <- [de], c = counter
+memcpy_s:
+        ldax d \ inx d \ mov m, a \ inx h
+        dcr c
+        jnz memcpy_s
+        ret
 
 err_loadguest:
         pop h
@@ -1333,8 +1402,33 @@ ed_lddr:
 ed_cpd:
         jmp $
 ed_cpdr:
-        jmp $
-
+        inx h
+        shld guest_pc
+        lhld guest_bc
+        mov b, h
+        mov c, l
+        lhld guest_hl
+        lda guest_psw+1
+        
+_cpdr_loop:        
+        cmp m
+        push psw
+        pop d
+        dcx h
+        dcx b
+        jz _cpdr_end
+        mov a, b
+        ora c
+        jnz _cpdr_loop
+_cpdr_end:
+        mov a, e
+        sta guest_psw
+        shld guest_hl
+        mov h, b
+        mov l, c
+        shld guest_bc
+        ret
+        
         ; align 256
         .org 0100h + $ & $ff00
 bit_value:
@@ -2274,6 +2368,7 @@ traptab:
 ; [x] DD CB prefix set 7,(ix+46); bit n, (ix+im8); res n, (ix+im8)
 ; [x] ED: LDI/LDIR, 
 ; [x] FD prefix (IY).. should be same as ix?
+; [x] CPDR IS USED
 ; [ ] LDD/LDDR, CPD/CPDR, IND/INDR, OUTD/OTDR seem to be not used in rogue
 ;
 ; FIXME
